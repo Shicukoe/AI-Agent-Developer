@@ -1,0 +1,68 @@
+version: 1
+
+# ── Task Classification ───────────────────────────────────────────────────────
+task_classification:
+  large_indicators:
+    label_names: ["large-task", "feature", "layout", "redesign"]
+    keywords: ["layout", "thiết kế", "xây dựng", "tạo mới màn", "new screen", "new feature", "lên layout"]
+    min_description_length: 200
+    min_checklist_items: 5
+    has_attachments: true   # treat cards with attachments as potentially large
+
+  small_indicators:
+    label_names: ["bug", "fix", "hotfix", "minor"]
+    keywords: ["sửa", "fix", "update", "đổi", "format", "bug", "lỗi", "chỉnh"]
+    max_description_length: 300
+
+# ── Auto-run Conditions ───────────────────────────────────────────────────────
+# Tasks matching ANY of these conditions can run without confirmation
+auto_run_conditions:
+  - label_name: "auto-run"
+  - title_prefix: "[AUTO]"
+  - complexity: "simple"    # only applies to tasks parsed as simple
+
+# ── Always Confirm ────────────────────────────────────────────────────────────
+always_confirm_conditions:
+  - label_name: "needs-review"
+  - complexity: "complex"
+  - missing_info_count: 1  # any missing info → ask first
+
+# ── Action Permissions ────────────────────────────────────────────────────────
+allowed_actions:
+  - post_comment
+  - add_label
+  - update_checklist_item
+  - write_file
+  - read_file
+
+# These actions always require human confirmation before executing
+requires_confirmation_actions:
+  - move_card
+  - create_card
+  - delete_card
+  - run_command
+
+# ── Risk Thresholds ───────────────────────────────────────────────────────────
+complexity_threshold: 5   # Claude estimated_steps > this → pause for confirmation
+confidence_threshold: 0.5 # Claude confidence < this → ask for more info
+
+# ── Escalation Keywords ───────────────────────────────────────────────────────
+# Presence of any of these in card name/description forces confirmation
+escalation_keywords:
+  - "delete all"
+  - "drop table"
+  - "production"
+  - "deploy"
+  - "xóa tất cả"
+  - "triển khai production"
+  - "reset database"
+
+# ── Scope Restrictions ────────────────────────────────────────────────────────
+# Branches the agent MUST NOT merge into directly
+protected_branches:
+  - main
+  - master
+  - dev
+  - develop
+  - staging
+  - production

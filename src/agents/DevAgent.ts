@@ -1,0 +1,211 @@
+import { readFileSync, existsSync, mkdirSync, writeFileSync } from 'fs';
+import { join } from 'path';
+import { execa } from 'execa';
+import { TrelloClient } from '../trello/TrelloClient.js';
+import { CardMemory } from './CardMemory.js';
+import { GitClient } from '../git/GitClient.js';
+import { TaskRepository } from '../state/TaskRepository.js';
+import { ConversationStore } from '../claude/ConversationStore.js';
+import { RiskGuard } from '../risk/RiskGuard.js';
+import { config } from '../config.js';
+import { childLogger } from '../utils/logger.js';
+import type { Task } from '../state/TaskRepository.js';
+
+const log = childLogger('dev-agent');
+
+// Resolve the claude CLI executable path
+// Priority: CLAUDE_CLI_PATH env → npx claude-code → system PATH
+function resolveClaudeCli(): string {
+  if (config.CLAUDE_CLI_PATH) return config.CLAUDE_CLI_PATH;
+
+  // Common install locations on Windows
+  const candidates = [
+    `${process.env.APPDATA}\\npm\\claude.cmd`,
+    `${process.env.APPDATA}\\npm\\claude`,
+    `${process.env.LOCALAPPDATA}\\Programs\\Claude\\claude.exe`,
+    'claude.cmd',
+    'claude',
+  ];
+
+  for (const c of candidates) {
+    if (c.includes('\\') && existsSync(c)) return c;
+  }
+
+  return 'claude'; // fall back to PATH
+}
+
+// Write .claude/settings.json in the worktree to pre-approve only the tools we need.
+// This avoids --dangerously-skip-permissions while still running non-interactively.
+function writeWorktreeSettings(worktreePath: string): void {
+  const settingsDir = join(worktreePath, '.claude');
+  mkdirSync(settingsDir, { recursive: true });
+  const settings = {
+    permissions: {
+      allow: [
+        'Read(*)',
+        'Edit(*)',
+        'Write(*)',
+        'Glob(*)',
+        'Grep(*)',
+      ],
+      deny: [
+        'Bash(*)',   // no shell execution — git handled by GitClient
+        'WebFetch(*)',
+        'WebSearch(*)',
+      ],
+    },
+  };
+  writeFileSync(join(settingsDir, 'settings.json'), JSON.stringify(settings, null, 2));
+}
+
+function buildPrompt(task: Task, planContext: string, worktreePath: string, memoryContext = ''): string {
+  const claudeMdPath = join(config.GIT_REPO_PATH, 'CLAUDE.md');
+  const conventions = existsSync(claudeMdPath)
+    ? `\n## Project Conventions (CLAUDE.md)\n${readFileSync(claudeMdPath, 'utf8')}\n`
+    : '';
+
+  return `You are implementing a software task. Work ONLY inside: ${worktreePath}
+${conventions}${memoryContext}
+## Task
+${planContext}
+
+## Rules
+- Read existing code before making changes
+- Follow ALL project conventions strictly
+- Do NOT run git commands — commit is handled externally
+- Do NOT install packages unless the task explicitly requires it
+- Stay inside the working directory above
+- When done, print a short summary of what files you changed and why
+- NGÔN NGỮ: phần tóm tắt cuối cùng viết bằng TIẾNG VIỆT (giữ nguyên tên file/biến/code)`;
+}
+
+export const DevAgent = {
+  async run(task: Task, planContext: string): Promise<void> {
+    log.info({ taskId: task.id, cardId: task.card_id }, 'DevAgent starting (claude CLI)');
+
+    const worktreePath = task.worktree_path!;
+    RiskGuard.assertBranchSafe(task.branch_name ?? '');
+
+    const claudeExe = resolveClaudeCli();
+    let memoryContext = await CardMemory.loadContext(task.card_id);
+    // Card con/điều chỉnh thuộc epic: nạp thêm kế hoạch + ghi nhớ của feature lớn
+    const card = await TrelloClient.getCard(task.card_id).catch(() => null);
+    const epicId = card ? CardMemory.parseEpicId(card.desc) : null;
+    if (epicId) memoryContext += await CardMemory.epicContext(epicId);
+    const prompt = buildPrompt(task, planContext, worktreePath, memoryContext);
+    const timeoutMs = config.MAX_TASK_PROCESSING_MINUTES * 60 * 1000;
+
+    // Pre-approve tools via settings.json instead of --dangerously-skip-permissions
+    writeWorktreeSettings(worktreePath);
+
+    await TrelloClient.addComment(
+      task.card_id,
+      `⚙️ **[AI AGENT]** DevAgent bắt đầu...\nBranch: \`${task.branch_name}\``,
+    );
+
+    let summary = '';
+    let hasError = false;
+
+    try {
+      log.info({ claudeExe, cwd: worktreePath }, 'Spawning claude CLI');
+
+      const proc = execa(claudeExe, [
+        '--print',                                          // non-interactive, print and exit
+        '--allowedTools', 'Edit,Write,Read,Grep,Glob',     // restrict to file tools only
+        '--max-turns', String(config.CLAUDE_MAX_TURNS_PER_TASK),
+        '--output-format', 'text',
+      ], {
+        cwd: worktreePath,
+        timeout: timeoutMs,
+        input: prompt,                    // pipe prompt via stdin
+        env: (() => {
+          // Strip ANTHROPIC_API_KEY so Claude CLI uses its own stored credentials (~/.claude)
+          const { ANTHROPIC_API_KEY: _unused, ...clean } = process.env;
+          return clean;
+        })(),
+      });
+
+      // Stream stdout lines for heartbeat + logging
+      proc.stdout?.on('data', (chunk: Buffer) => {
+        const lines = chunk.toString().split('\n').filter(Boolean);
+        for (const line of lines) {
+          log.debug({ taskId: task.id, line: line.slice(0, 120) }, 'claude output');
+          TaskRepository.heartbeat(task.id);
+        }
+      });
+
+      proc.stderr?.on('data', (chunk: Buffer) => {
+        log.warn({ taskId: task.id, stderr: chunk.toString().slice(0, 200) }, 'claude stderr');
+      });
+
+      const result = await proc;
+      summary = result.stdout.trim();
+      TaskRepository.incrementTurns(task.id);
+
+    } catch (err: unknown) {
+      const e = err as { timedOut?: boolean; killed?: boolean; exitCode?: number; stderr?: string; message?: string };
+
+      if (e.timedOut || e.killed) {
+        hasError = true;
+        summary = `Timed out after ${config.MAX_TASK_PROCESSING_MINUTES} minutes`;
+      } else if (e.exitCode !== undefined && e.exitCode !== 0) {
+        // Exit code 1 can be normal if claude just printed output — check stderr
+        const stderr = e.stderr ?? '';
+        if (stderr.includes('error') || stderr.includes('Error')) {
+          hasError = true;
+          summary = `claude exited with code ${e.exitCode}: ${stderr.slice(0, 300)}`;
+        }
+        // Otherwise treat non-zero exit as success (claude sometimes exits 1 with valid output)
+      }
+
+      log.warn({ taskId: task.id, hasError, summary: summary.slice(0, 200) }, 'claude process ended');
+    }
+
+    if (hasError) {
+      await TrelloClient.addComment(
+        task.card_id,
+        `⚠️ **[AI AGENT]** DevAgent gặp lỗi:\n\`${summary}\``,
+      );
+      TaskRepository.setStatus(task.id, 'halted', { error_message: summary });
+      return;
+    }
+
+    if (!summary) {
+      await TrelloClient.addComment(task.card_id, `⚠️ **[AI AGENT]** Không có output. Kiểm tra task description.`);
+      return;
+    }
+
+    ConversationStore.append(task.id, 'assistant', summary);
+
+    // Commit all file changes made by claude
+    const commitHash = await this.commitChanges(task, worktreePath, task.card_name, summary);
+
+    if (commitHash) {
+      log.info({ taskId: task.id, commitHash, branch: task.branch_name }, 'DevAgent committed');
+      // Ghi memory: đã code gì, để Review/lần chạy sau nạp lại
+      await CardMemory.post(task.card_id, 'Dev',
+        `**Branch:** \`${task.branch_name}\` (commit \`${commitHash.slice(0, 8)}\`)\n**Đã thực hiện:**\n${summary}`
+      ).catch(() => {});
+    } else {
+      await TrelloClient.addComment(
+        task.card_id,
+        `⚠️ **[AI AGENT]** Không có thay đổi file nào được tạo ra.`,
+      );
+    }
+  },
+
+  async commitChanges(task: Task, worktreePath: string, cardName: string, summary?: string): Promise<string> {
+    const message =
+      `[AUTO] ${cardName}\n\n` +
+      `${summary ?? 'Automated implementation by AI Agent'}\n\n` +
+      `Trello card: ${task.card_id}`;
+    try {
+      const hash = await GitClient.commit(task.id, worktreePath, message);
+      await GitClient.push(task.id, worktreePath, task.branch_name!);
+      return hash;
+    } catch (err) {
+      log.warn({ taskId: task.id, err }, 'Nothing to commit or push failed');
+      return '';
+    }
+  },
+};
