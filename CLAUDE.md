@@ -14,10 +14,36 @@ nhãn **`AI`** (công tắc) thì agent mới xử lý.
 TrelloConnector (webhook/poll)
     → StageRouter.dispatch(stage, card)        ← route theo list
         → TaskQueue.run (p-queue, concurrency=3)
+            → [Refine]   runRefine    → RefineAgent (làm rõ + chuẩn hoá task, ghi đè mô tả)
             → [Planning] runPlanning  → PlannerAgent → chờ nhãn "plan approve"
             → [Dev]      runDev       → DevAgent (code thẳng theo plan đã duyệt)
             → [Test]     runTest      → ReviewAgent (review diff, PASS/FAIL)
 ```
+
+## Refine — làm rõ & chuẩn hoá task (cửa trước, tuỳ chọn)
+
+Card sơ sài kéo vào list **`Refine`** (có nhãn AI): `RefineAgent` đọc card + codebase, **giải nghĩa
+rõ từng chức năng**, **ghi đè mô tả card** theo format chuẩn (giữ "📌 Yêu cầu gốc" ở cuối), và phân loại:
+
+- **small** → ghi sẵn spec ra `plan_file_path` + status `plan_approved` → kéo thẳng sang **Dev** (bỏ Planning).
+- **large** → gợi ý kéo sang **Planning**. · **epic** → gợi ý kéo sang **Epic**.
+
+Thiếu thông tin → đặt câu hỏi, status `awaiting_clarification`. Admin bổ sung vào card rồi reply
+`REFINE` (hoặc `RETRY` khi card còn ở Refine) để chạy lại. Với task kiểu "thêm field", RefineAgent
+điền `field_details` (kiểu dữ liệu, tên hiển thị, model, validation, default).
+
+## Chọn executor theo `kind` — đa agent ở stage Dev
+
+RefineAgent còn phân loại **`kind`** (năng lực/sản phẩm) và lưu vào `metadata.kind`. Ở stage **Dev**,
+`StageRouter.runDev` đọc `kind` rồi `pickExecutor(kind)` (xem `agents/executors/registry.ts`):
+
+- **`code`** (mặc định) → `DevAgent`: viết code trong worktree, commit → Test review diff.
+- **`doc_card`** → `DocCardExecutor`: sinh nội dung tài liệu và **tạo một Trello card mới** (list theo
+  `TRELLO_DOCS_LIST_NAMES` → Info → list nguồn), rồi set `completed` — **không qua git/Test**.
+
+**Không tìm thấy executor** cho `kind` → runDev set `halted` và **comment báo admin** trên card.
+Thêm năng lực/agent mới: bổ sung giá trị `TaskKind` (`claude/types.ts`) + một `Executor` +
+đăng ký trong `executors/registry.ts` + dạy RefineAgent prompt phân loại kind đó.
 
 - **Một card = một Task record duy nhất**, đi qua các stage theo thời gian.
 - Duyệt plan bằng cách **gắn nhãn `plan approve`** (không qua comment APPROVE nữa).

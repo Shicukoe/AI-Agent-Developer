@@ -68,7 +68,7 @@ export interface TrelloAction {
   };
 }
 
-export type Stage = 'epic' | 'planning' | 'dev' | 'test';
+export type Stage = 'refine' | 'epic' | 'planning' | 'dev' | 'test';
 
 // Normalised event emitted by TrelloConnector
 export type TrelloEvent =

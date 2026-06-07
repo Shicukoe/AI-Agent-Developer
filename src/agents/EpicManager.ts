@@ -52,9 +52,13 @@ export const EpicManager = {
     const subTasks = plan.sub_tasks ?? [];
     for (const st of subTasks) {
       const desc =
-        `${st.description}\n\n` +
-        `**Tiêu chí nghiệm thu:**\n${(st.acceptance_criteria ?? []).map(c => `- ${c}`).join('\n') || '—'}\n\n` +
-        `---\nEpic: ${epicTask.card_id}`;
+        `# ${st.title}\n\n` +
+        `**Thuộc feature (EPIC):** ${epicTask.card_id}\n\n` +
+        `**Mô tả chi tiết:**\n${st.description || '—'}\n\n` +
+        `**Tiêu chí nghiệm thu:**\n${(st.acceptance_criteria ?? []).map(c => `- ${c}`).join('\n') || '- —'}\n\n` +
+        `**File dự kiến:**\n${(st.files_expected ?? []).map(f => `- ${f}`).join('\n') || '- —'}\n\n` +
+        `**Hướng dẫn bắt đầu:**\n- Kéo card này sang list *Dev* để agent bắt đầu làm việc.\n- Branch sẽ được tạo tự động và code sẽ được commit bởi agent.\n\n` +
+        `**Ghi chú:**\n- Giữ nguyên nhãn \`AI\` để agent nhận diện.\n- ID Epic: ${epicTask.card_id}\n`;
 
       const child = await TrelloClient.createCard(childList.id, `[${epicShort}] ${st.title}`, desc, idLabels);
 

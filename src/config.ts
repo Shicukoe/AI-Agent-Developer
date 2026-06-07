@@ -13,9 +13,14 @@ const schema = z.object({
   // Stage lists — card được route theo list nó đang nằm. Tên list khớp không phân biệt hoa thường.
   // List chứa card "epic" (feature lớn): agent lập plan rồi sinh card con khi được chốt.
   TRELLO_EPIC_LIST_NAMES: csv('Epic'),
+  // List "cửa trước": làm rõ & chuẩn hoá task sơ sài trước khi sang Planning/Dev.
+  TRELLO_REFINE_LIST_NAMES: csv('Refine'),
   TRELLO_PLANNING_LIST_NAMES: csv('Planning'),
   TRELLO_DEV_LIST_NAMES: csv('Dev'),
   TRELLO_TEST_LIST_NAMES: csv('Test'),
+  TRELLO_INFO_LIST_NAMES: csv('Info'),
+  // List đích cho card tài liệu do DocCardExecutor sinh ra (fallback: Info list, rồi list nguồn).
+  TRELLO_DOCS_LIST_NAMES: csv('Docs'),
   // Label name that triggers the agent (case-insensitive). Create this label on your board.
   TRELLO_AI_LABEL_NAME: z.string().default('AI'),
   // Label người dùng gắn để chốt plan ở stage Planning.
@@ -99,6 +104,7 @@ export function stageForListName(listName: string): Stage | null {
   const upper = listName.toUpperCase();
   const inList = (names: string[]) => names.map(n => n.toUpperCase()).includes(upper);
   if (inList(config.TRELLO_EPIC_LIST_NAMES)) return 'epic';
+  if (inList(config.TRELLO_REFINE_LIST_NAMES)) return 'refine';
   if (inList(config.TRELLO_PLANNING_LIST_NAMES)) return 'planning';
   if (inList(config.TRELLO_DEV_LIST_NAMES)) return 'dev';
   if (inList(config.TRELLO_TEST_LIST_NAMES)) return 'test';
@@ -108,6 +114,16 @@ export function stageForListName(listName: string): Stage | null {
 /** Id của list Planning đầu tiên trên board (nơi đặt card con do epic sinh ra). */
 export function firstPlanningListName(): string {
   return config.TRELLO_PLANNING_LIST_NAMES[0] ?? 'Planning';
+}
+
+/** Tên list Refine đầu tiên (cửa trước làm rõ task). */
+export function firstRefineListName(): string {
+  return config.TRELLO_REFINE_LIST_NAMES[0] ?? 'Refine';
+}
+
+/** Card info list name for board setup and instructions. */
+export function firstInfoListName(): string {
+  return config.TRELLO_INFO_LIST_NAMES[0] ?? 'Info';
 }
 
 /** Card có nhãn tên cụ thể không (so khớp không phân biệt hoa thường)? */

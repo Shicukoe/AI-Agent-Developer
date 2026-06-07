@@ -6,12 +6,64 @@ import { StageRouter } from './agents/StageRouter.js';
 import { ConfirmationManager } from './confirmation/ConfirmationManager.js';
 import { TaskRepository } from './state/TaskRepository.js';
 import { WorktreeManager } from './git/WorktreeManager.js';
-import { config, stageForListName, hasAiLabel } from './config.js';
+import { config, stageForListName, hasAiLabel, hasPlanApproveLabel, firstInfoListName } from './config.js';
 import { logger } from './utils/logger.js';
-import type { TrelloEvent } from './trello/types.js';
+import type { TrelloEvent, TrelloCard, TrelloList } from './trello/types.js';
 
 function isLabelName(name: string, configured: string): boolean {
   return name.toLowerCase() === configured.toLowerCase();
+}
+
+const INFO_CARD_TITLE = 'AutoPilot Agent Instructions';
+const INFO_CARD_MARKER = '📝 [AI AGENT] Setup instructions';
+
+function createInfoCardDescription(): string {
+  return (
+    `${INFO_CARD_MARKER}\n\n` +
+    `Đây là thẻ hướng dẫn dành cho AutoPilot Agent. Giữ thẻ này trong list **${firstInfoListName()}** để làm tài liệu tham khảo.\n\n` +
+    `• Để kích hoạt agent cho một task, gắn nhãn **AI** lên card.\n` +
+    `• Task còn sơ sài? Kéo vào list **Refine** để AI làm rõ & chuẩn hoá; trả lời câu hỏi rồi reply \`REFINE\`.\n` +
+    `• Gắn nhãn **plan approve** khi kế hoạch đã được duyệt.\n` +
+    `• Các list quan trọng: **Refine**, **Epic**, **Planning**, **Dev**, **Test**.\n` +
+    `• Nếu bạn đổi tên list, cập nhật biến môi trường tương ứng trong .env.\n` +
+    `• Không xoá thẻ này; nó là tài liệu setup cho board.\n\n` +
+    `Nếu bạn cần thay đổi yêu cầu hàng loạt, chỉnh nội dung thẻ này bằng cách sửa mô tả card.`
+  );
+}
+
+function isInfoCard(card: TrelloCard): boolean {
+  return card.name === INFO_CARD_TITLE || card.desc.includes(INFO_CARD_MARKER);
+}
+
+async function findExistingInfoCard(lists: TrelloList[]): Promise<TrelloCard | undefined> {
+  for (const list of lists) {
+    const cards = await TrelloClient.getCardsInList(list.id);
+    const found = cards.find(isInfoCard);
+    if (found) return found;
+  }
+  return undefined;
+}
+
+async function ensureBoardInfoCard(boardId: string): Promise<void> {
+  const lists = await TrelloClient.getLists(boardId);
+  const infoListName = firstInfoListName();
+  let infoList = lists.find(l => l.name.toUpperCase() === infoListName.toUpperCase());
+  if (!infoList) {
+    infoList = await TrelloClient.createList(boardId, infoListName);
+    logger.info({ boardId, listName: infoListName }, 'Created missing Info list');
+  }
+
+  const existingInfoCard = await findExistingInfoCard(lists);
+  if (existingInfoCard) {
+    if (existingInfoCard.idList !== infoList.id) {
+      await TrelloClient.moveCard(existingInfoCard.id, infoList.id);
+      logger.info({ boardId, cardId: existingInfoCard.id, listId: infoList.id }, 'Moved existing instruction card back to Info list');
+    }
+    return;
+  }
+
+  await TrelloClient.createCard(infoList.id, INFO_CARD_TITLE, createInfoCardDescription());
+  logger.info({ boardId, listId: infoList.id }, 'Created new Info instruction card');
 }
 
 /** On startup: scan all stage lists (Planning/Dev/Test) for AI-labelled cards and route them by stage. */
@@ -51,7 +103,11 @@ async function scanExistingStageCards(): Promise<void> {
         // chạy lại nhầm — người dùng kéo lại nếu muốn kích hoạt.
         const existing = TaskRepository.findByCardId(card.id);
         if (existing) {
-          logger.debug({ cardId: card.id, status: existing.status }, 'Card đã có Task — bỏ qua startup scan');
+          logger.debug({ cardId: card.id, status: existing.status }, 'Card đã có Task — checking startup approval state');
+          if (hasPlanApproveLabel(card.labels ?? []) && existing.status === 'awaiting_plan_approval') {
+            logger.info({ cardId: card.id, status: existing.status }, 'Startup scan: existing card already has plan-approve label, triggering onPlanApprove');
+            await StageRouter.onPlanApprove(card.id);
+          }
           continue;
         }
 
@@ -138,6 +194,13 @@ async function main(): Promise<void> {
 
   connector.start();
   logger.info({ mode: config.TRELLO_USE_WEBHOOK ? 'webhook' : 'polling' }, 'Trello connector started');
+
+  // Ensure each board has a persistent instruction card in the Info list.
+  for (const boardId of config.TRELLO_BOARD_IDS) {
+    await ensureBoardInfoCard(boardId).catch(err =>
+      logger.error({ boardId, err }, 'Failed to ensure Info instruction card')
+    );
+  }
 
   // Route cards already sitting in stage lists before the agent started
   await scanExistingStageCards().catch(err =>

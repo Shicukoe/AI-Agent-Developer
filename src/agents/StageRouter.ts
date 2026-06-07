@@ -3,8 +3,11 @@ import { TrelloClient } from '../trello/TrelloClient.js';
 import { WorktreeManager } from '../git/WorktreeManager.js';
 import { TaskRepository } from '../state/TaskRepository.js';
 import { RuleEngine } from '../rules/RuleEngine.js';
+import { RefineAgent } from './RefineAgent.js';
 import { PlannerAgent } from './PlannerAgent.js';
 import { DevAgent } from './DevAgent.js';
+import { taskKind } from './executors/types.js';
+import { pickExecutor } from './executors/registry.js';
 import { ReviewAgent } from './ReviewAgent.js';
 import { CardMemory } from './CardMemory.js';
 import { EpicManager } from './EpicManager.js';
@@ -21,6 +24,15 @@ const log = childLogger('stage-router');
 function slugify(name: string): string {
   return name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 40);
 }
+
+/** Nhãn tiếng Việt cho từng stage, dùng trong comment "đã nhận xử lý". */
+const STAGE_LABEL: Record<Stage, string> = {
+  refine: 'Làm rõ task (Refine)',
+  epic: 'Lập kế hoạch Epic',
+  planning: 'Lập kế hoạch (Planning)',
+  dev: 'Code (Dev)',
+  test: 'Review (Test)',
+};
 
 /** Find the single Task for a card, or create one. One Task per card across all stages. */
 function findOrCreateTask(card: TrelloCard, listId: string): Task {
@@ -45,13 +57,29 @@ export const StageRouter = {
 
     TaskQueue.run(task.id, async () => {
       const fresh = TaskRepository.findById(task.id)!;
+      // Báo cho người dùng biết agent đã nhận task và bắt đầu xử lý (job vừa rời hàng đợi).
+      await TrelloClient.addComment(fresh.card_id,
+        `🤖 **[AI AGENT]** Đã nhận task, bắt đầu xử lý: **${STAGE_LABEL[stage]}**…`).catch(() => {});
       switch (stage) {
+        case 'refine': await this.runRefine(fresh); break;
         case 'epic': await this.runEpicPlanning(fresh); break;
         case 'planning': await this.runPlanning(fresh); break;
         case 'dev': await this.runDev(fresh); break;
         case 'test': await this.runTest(fresh); break;
       }
     });
+  },
+
+  /** Refine stage: làm rõ & chuẩn hoá task sơ sài trước khi sang Planning/Dev. */
+  async runRefine(task: Task): Promise<void> {
+    log.info({ taskId: task.id }, 'runRefine');
+    try {
+      TaskRepository.setStatus(task.id, 'processing');
+      TaskRepository.heartbeat(task.id);
+      await RefineAgent.run(task);
+    } catch (err) {
+      await OrchestratorAgent.handleError(task, err);
+    }
   },
 
   /** Epic stage: lập kế hoạch tổng cho feature lớn; khi chốt sẽ sinh card con (xem onPlanApprove). */
@@ -70,6 +98,12 @@ export const StageRouter = {
       TaskRepository.setStatus(task.id, 'awaiting_plan_approval');
       await TrelloClient.addComment(task.card_id,
         '🧩 **[AI AGENT]** Đây là **EPIC**. Khi bạn gắn nhãn **`plan approve`**, tôi sẽ tự tạo các card con để thực thi.');
+
+      // If the approval label was added while planning was still running, create children now.
+      const card = await TrelloClient.getCard(task.card_id);
+      if (hasPlanApproveLabel(card.labels ?? [])) {
+        await this.onPlanApprove(task.card_id);
+      }
     } catch (err) {
       await OrchestratorAgent.handleError(task, err);
     }
@@ -139,19 +173,48 @@ export const StageRouter = {
   async runDev(task: Task): Promise<void> {
     log.info({ taskId: task.id }, 'runDev');
 
-    if (!task.plan_file_path || !existsSync(task.plan_file_path)) {
+    const card = await TrelloClient.getCard(task.card_id);
+    const hasPlanFile = !!task.plan_file_path && existsSync(task.plan_file_path);
+
+    // Task còn chờ làm rõ (Refine đã đặt câu hỏi) → hướng dẫn hoàn tất Refine trước, không báo "thiếu plan".
+    if (!hasPlanFile && task.status === 'awaiting_clarification') {
       await TrelloClient.addComment(task.card_id,
-        '⚠️ **[AI AGENT]** Chưa có kế hoạch. Kéo card về list **Planning** để lập plan trước.');
+        '⚠️ **[AI AGENT]** Task chưa được làm rõ xong (còn câu hỏi chờ trả lời). Bổ sung thông tin vào card rồi reply `REFINE` (hoặc kéo card về list **Refine**) trước khi sang Dev.');
       return;
     }
 
-    // Plan được coi là đã duyệt nếu status = plan_approved HOẶC card đang có nhãn plan-approve.
-    // Dựa vào nhãn giúp tránh lỗi đua khi nhãn được gắn lúc planner còn đang chạy.
-    const card = await TrelloClient.getCard(task.card_id);
-    const approved = task.status === 'plan_approved' || hasPlanApproveLabel(card.labels ?? []);
+    // Plan được coi là đã duyệt nếu: status đã ở/đi qua giai đoạn duyệt (plan_approved, hoặc đã từng
+    // dev/test — re-dev sau review_failed) HOẶC card đang có nhãn plan-approve (tránh đua khi gắn nhãn
+    // lúc planner còn chạy). Card nhỏ qua Refine không có nhãn nên dựa vào status.
+    const PAST_APPROVAL = new Set(['plan_approved', 'developing', 'dev_done', 'testing', 'review_failed']);
+    const approved = PAST_APPROVAL.has(task.status) || hasPlanApproveLabel(card.labels ?? []);
     if (!approved) {
       await TrelloClient.addComment(task.card_id,
-        '⚠️ **[AI AGENT]** Kế hoạch chưa được duyệt. Gắn nhãn **`plan approve`** trước khi sang Dev.');
+        '⚠️ **[AI AGENT]** Task chưa sẵn sàng để code. Kéo vào list **Refine** (task nhỏ) hoặc **Planning** để chuẩn bị, hoặc gắn nhãn **`plan approve`**.');
+      return;
+    }
+
+    // Chọn executor theo kind đã phân loại (RefineAgent). 'code' → DevAgent (luồng git bên dưới);
+    // các kind khác → executor chuyên biệt. Không có executor phù hợp → báo admin và dừng.
+    const kind = taskKind(task);
+    if (kind !== 'code') {
+      const executor = pickExecutor(kind);
+      if (!executor) {
+        TaskRepository.setStatus(task.id, 'halted', { error_message: `Không có executor cho kind '${kind}'` });
+        await TrelloClient.addComment(task.card_id,
+          `🛑 **[AI AGENT]** Không tìm thấy agent phù hợp để thực thi task loại \`${kind}\`. ` +
+          `Admin cần bổ sung executor cho loại này hoặc đổi loại task (kéo về **Refine** để phân loại lại). Task tạm dừng.`);
+        log.warn({ taskId: task.id, kind }, 'No executor registered for kind');
+        return;
+      }
+      try {
+        TaskRepository.setStatus(task.id, 'developing');
+        TaskRepository.heartbeat(task.id);
+        log.info({ taskId: task.id, kind, executor: executor.label }, 'Running executor');
+        await executor.run(task);
+      } catch (err) {
+        await OrchestratorAgent.handleError(task, err);
+      }
       return;
     }
 
@@ -169,12 +232,24 @@ export const StageRouter = {
       }
 
       const fresh = TaskRepository.findById(task.id)!;
-      const planContext = readFileSync(task.plan_file_path, 'utf8');
-      await DevAgent.run(fresh, planContext);
+      // Spec cho DevAgent: ưu tiên PLAN.md; nếu không có (task nhỏ qua Refine), dùng mô tả card đã chuẩn hoá.
+      const planContext = hasPlanFile
+        ? readFileSync(task.plan_file_path!, 'utf8')
+        : `# ${card.name}\n\n${card.desc || '(không có mô tả)'}`;
+      const result = await DevAgent.run(fresh, planContext);
 
       // DevAgent sets status 'halted' on its own failure — don't overwrite that.
       const after = TaskRepository.findById(task.id)!;
       if (after.status === 'halted' || after.status === 'paused_for_confirmation') return;
+
+      // Không có thay đổi file → KHÔNG báo "Code xong"/không cho sang Test (sẽ FAIL "No changes").
+      if (!result.committed) {
+        TaskRepository.setStatus(task.id, 'review_failed', { error_message: 'DevAgent không tạo thay đổi file' });
+        await TrelloClient.addComment(task.card_id,
+          '⚠️ **[AI AGENT]** DevAgent kết thúc nhưng **không tạo thay đổi file nào** — chưa thể sang Test.\n' +
+          'Nếu là task viết tài liệu, hãy nêu rõ **đường dẫn file cần tạo** (vd `docs/huong-dan-firebase.md`) trong mô tả card rồi kéo lại **Dev**.');
+        return;
+      }
 
       TaskRepository.setStatus(task.id, 'dev_done');
       await TrelloClient.addComment(task.card_id,

@@ -46,6 +46,13 @@ export const TrelloClient = {
     return trelloFetch<TrelloList[]>(`/boards/${boardId}/lists`);
   },
 
+  async createList(boardId: string, name: string): Promise<TrelloList> {
+    return trelloFetch<TrelloList>('/lists', {
+      method: 'POST',
+      body: JSON.stringify({ name, idBoard: boardId, pos: 'bottom' }),
+    });
+  },
+
   async getLabels(boardId: string): Promise<TrelloLabel[]> {
     return trelloFetch<TrelloLabel[]>(`/boards/${boardId}/labels?limit=1000`);
   },
@@ -73,6 +80,15 @@ export const TrelloClient = {
       memberId: a.idMemberCreator,
       date: a.date,
     }));
+  },
+
+  /** Ghi đè mô tả (description) của card. */
+  async updateCardDescription(cardId: string, desc: string): Promise<void> {
+    await trelloFetch(`/cards/${cardId}`, {
+      method: 'PUT',
+      body: JSON.stringify({ desc }),
+    });
+    log.debug({ cardId }, 'Card description updated');
   },
 
   async moveCard(cardId: string, listId: string): Promise<void> {

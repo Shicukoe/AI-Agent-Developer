@@ -4,8 +4,8 @@ import { getDb } from './db.js';
 export type TaskStatus =
   | 'queued' | 'processing' | 'paused_for_confirmation' | 'paused_for_plan_approval'
   | 'waiting_review' | 'completed' | 'failed' | 'halted'
-  // Stage-based flow (Planning / Dev / Test)
-  | 'awaiting_plan_approval' | 'plan_approved' | 'developing' | 'dev_done'
+  // Stage-based flow (Refine / Planning / Dev / Test)
+  | 'awaiting_clarification' | 'awaiting_plan_approval' | 'plan_approved' | 'developing' | 'dev_done'
   | 'testing' | 'review_failed';
 
 export type TaskType = 'small' | 'large' | 'epic';
@@ -96,7 +96,7 @@ export const TaskRepository = {
     return getDb().prepare(`
       SELECT * FROM tasks WHERE card_id = ? AND status IN (
         'queued','processing','paused_for_confirmation','paused_for_plan_approval','waiting_review',
-        'awaiting_plan_approval','plan_approved','developing','dev_done','testing','review_failed'
+        'awaiting_clarification','awaiting_plan_approval','plan_approved','developing','dev_done','testing','review_failed'
       )
     `).get(cardId) as Task | undefined;
   },
@@ -110,6 +110,17 @@ export const TaskRepository = {
     const fields = { ...patch, updated_at: now };
     const sets = Object.keys(fields).map(k => `${k} = @${k}`).join(', ');
     getDb().prepare(`UPDATE tasks SET ${sets} WHERE id = @id`).run({ ...fields, id });
+  },
+
+  /** Trộn (merge) các khoá vào metadata JSON của task, giữ nguyên các khoá cũ. */
+  mergeMetadata(id: string, patch: Record<string, unknown>): void {
+    const task = this.findById(id);
+    if (!task) return;
+    let meta: Record<string, unknown> = {};
+    if (task.metadata) {
+      try { meta = JSON.parse(task.metadata) as Record<string, unknown>; } catch { meta = {}; }
+    }
+    this.update(id, { metadata: JSON.stringify({ ...meta, ...patch }) });
   },
 
   setStatus(id: string, status: TaskStatus, extra?: Partial<Task>): void {

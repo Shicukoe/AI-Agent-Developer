@@ -4,6 +4,7 @@ import { execa } from 'execa';
 import { TrelloClient } from '../trello/TrelloClient.js';
 import { CardMemory } from './CardMemory.js';
 import { GitClient } from '../git/GitClient.js';
+import { ShellExecutor } from '../shell/ShellExecutor.js';
 import { TaskRepository } from '../state/TaskRepository.js';
 import { ConversationStore } from '../claude/ConversationStore.js';
 import { RiskGuard } from '../risk/RiskGuard.js';
@@ -75,12 +76,14 @@ ${planContext}
 - Do NOT run git commands — commit is handled externally
 - Do NOT install packages unless the task explicitly requires it
 - Stay inside the working directory above
+- Nếu task là viết TÀI LIỆU/văn bản (hướng dẫn, README, doc...), bạn PHẢI TẠO file thật (vd \`.md\`) trong thư mục phù hợp — KHÔNG chỉ in nội dung ra output. Không có file thay đổi = task chưa hoàn thành.
 - When done, print a short summary of what files you changed and why
 - NGÔN NGỮ: phần tóm tắt cuối cùng viết bằng TIẾNG VIỆT (giữ nguyên tên file/biến/code)`;
 }
 
 export const DevAgent = {
-  async run(task: Task, planContext: string): Promise<void> {
+  /** Trả về { committed } để runDev biết có thay đổi file thật hay không (tránh báo "Code xong" khi rỗng). */
+  async run(task: Task, planContext: string): Promise<{ committed: boolean }> {
     log.info({ taskId: task.id, cardId: task.card_id }, 'DevAgent starting (claude CLI)');
 
     const worktreePath = task.worktree_path!;
@@ -104,6 +107,7 @@ export const DevAgent = {
     );
 
     let summary = '';
+    let collected = '';   // gom stdout streamed để dùng cả khi tiến trình exit ≠ 0
     let hasError = false;
 
     try {
@@ -125,8 +129,9 @@ export const DevAgent = {
         })(),
       });
 
-      // Stream stdout lines for heartbeat + logging
+      // Stream stdout lines for heartbeat + logging (gom lại để fallback khi exit ≠ 0)
       proc.stdout?.on('data', (chunk: Buffer) => {
+        collected += chunk.toString();
         const lines = chunk.toString().split('\n').filter(Boolean);
         for (const line of lines) {
           log.debug({ taskId: task.id, line: line.slice(0, 120) }, 'claude output');
@@ -139,26 +144,27 @@ export const DevAgent = {
       });
 
       const result = await proc;
-      summary = result.stdout.trim();
+      summary = (result.stdout || collected).trim();
       TaskRepository.incrementTurns(task.id);
 
     } catch (err: unknown) {
-      const e = err as { timedOut?: boolean; killed?: boolean; exitCode?: number; stderr?: string; message?: string };
+      const e = err as { timedOut?: boolean; killed?: boolean; exitCode?: number; stdout?: string; stderr?: string; message?: string };
 
       if (e.timedOut || e.killed) {
         hasError = true;
         summary = `Timed out after ${config.MAX_TASK_PROCESSING_MINUTES} minutes`;
-      } else if (e.exitCode !== undefined && e.exitCode !== 0) {
-        // Exit code 1 can be normal if claude just printed output — check stderr
+      } else {
+        // Claude CLI thường exit code 1 dù ĐÃ làm việc xong — vẫn lấy output (từ error hoặc stream)
+        // để có thể commit các file đã ghi. Chỉ coi là lỗi khi không có output VÀ stderr báo error.
+        summary = ((e.stdout || collected) ?? '').trim();
         const stderr = e.stderr ?? '';
-        if (stderr.includes('error') || stderr.includes('Error')) {
+        if (!summary && (stderr.includes('error') || stderr.includes('Error'))) {
           hasError = true;
           summary = `claude exited with code ${e.exitCode}: ${stderr.slice(0, 300)}`;
         }
-        // Otherwise treat non-zero exit as success (claude sometimes exits 1 with valid output)
       }
 
-      log.warn({ taskId: task.id, hasError, summary: summary.slice(0, 200) }, 'claude process ended');
+      log.warn({ taskId: task.id, hasError, exitCode: e.exitCode, summary: summary.slice(0, 200) }, 'claude process ended');
     }
 
     if (hasError) {
@@ -167,45 +173,57 @@ export const DevAgent = {
         `⚠️ **[AI AGENT]** DevAgent gặp lỗi:\n\`${summary}\``,
       );
       TaskRepository.setStatus(task.id, 'halted', { error_message: summary });
-      return;
+      return { committed: false };
     }
 
-    if (!summary) {
-      await TrelloClient.addComment(task.card_id, `⚠️ **[AI AGENT]** Không có output. Kiểm tra task description.`);
-      return;
-    }
+    if (summary) ConversationStore.append(task.id, 'assistant', summary);
 
-    ConversationStore.append(task.id, 'assistant', summary);
-
-    // Commit all file changes made by claude
-    const commitHash = await this.commitChanges(task, worktreePath, task.card_name, summary);
+    // Quyết định thành công dựa trên THAY ĐỔI FILE THẬT (git status), KHÔNG phụ thuộc text output:
+    // claude có thể đã ghi file dù stdout rỗng/exit ≠ 0.
+    const commitHash = await this.commitChanges(task, worktreePath, task.card_name, summary || '(agent không in tóm tắt)');
 
     if (commitHash) {
       log.info({ taskId: task.id, commitHash, branch: task.branch_name }, 'DevAgent committed');
       // Ghi memory: đã code gì, để Review/lần chạy sau nạp lại
       await CardMemory.post(task.card_id, 'Dev',
-        `**Branch:** \`${task.branch_name}\` (commit \`${commitHash.slice(0, 8)}\`)\n**Đã thực hiện:**\n${summary}`
+        `**Branch:** \`${task.branch_name}\` (commit \`${commitHash.slice(0, 8)}\`)\n**Đã thực hiện:**\n${summary || '(agent không in tóm tắt)'}`
       ).catch(() => {});
-    } else {
-      await TrelloClient.addComment(
-        task.card_id,
-        `⚠️ **[AI AGENT]** Không có thay đổi file nào được tạo ra.`,
-      );
+      return { committed: true };
     }
+
+    // Không có thay đổi file — để runDev xử lý thông báo (không báo "Code xong").
+    log.warn({ taskId: task.id }, 'DevAgent produced no file changes');
+    return { committed: false };
   },
 
   async commitChanges(task: Task, worktreePath: string, cardName: string, summary?: string): Promise<string> {
+    // Chỉ commit khi thực sự có thay đổi file (tránh commit rỗng và phản ánh đúng "không tạo gì").
+    const status = await ShellExecutor.git(['status', '--porcelain'], worktreePath).catch(() => ({ stdout: '' }));
+    if (!String(status.stdout).trim()) {
+      log.warn({ taskId: task.id }, 'No file changes to commit');
+      return '';
+    }
+
     const message =
       `[AUTO] ${cardName}\n\n` +
       `${summary ?? 'Automated implementation by AI Agent'}\n\n` +
       `Trello card: ${task.card_id}`;
+
+    let hash = '';
     try {
-      const hash = await GitClient.commit(task.id, worktreePath, message);
-      await GitClient.push(task.id, worktreePath, task.branch_name!);
-      return hash;
+      hash = await GitClient.commit(task.id, worktreePath, message);
     } catch (err) {
-      log.warn({ taskId: task.id, err }, 'Nothing to commit or push failed');
+      log.error({ taskId: task.id, err }, 'Commit failed');
       return '';
     }
+
+    // Push là tuỳ chọn: thất bại (không có remote/credential) KHÔNG làm hỏng kết quả —
+    // ReviewAgent review trên diff local vs base branch.
+    try {
+      await GitClient.push(task.id, worktreePath, task.branch_name!);
+    } catch (err) {
+      log.warn({ taskId: task.id, err }, 'Push failed — tiếp tục với commit local');
+    }
+    return hash;
   },
 };

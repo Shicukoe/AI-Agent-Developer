@@ -7,7 +7,8 @@
   "scripts": {
     "dev": "tsx watch src/index.ts",
     "start": "node dist/index.js",
-    "build": "tsc",
+    "build": "tsc && npm run copy-assets",
+    "copy-assets": "node --input-type=module -e \"import { mkdirSync, copyFileSync } from 'fs'; mkdirSync('dist/state', { recursive: true }); mkdirSync('dist/rules', { recursive: true }); copyFileSync('src/state/schema.sql', 'dist/state/schema.sql'); copyFileSync('src/rules/rules.yaml', 'dist/rules/rules.yaml');\"",
     "test": "vitest run",
     "test:watch": "vitest",
     "lint": "eslint src --ext .ts",
