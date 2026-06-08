@@ -1,0 +1,369 @@
+.swiper-container {
+    width: 100%;
+    z-index: 0;
+    overflow: hidden;
+    position: relative;
+
+    .swiper-slide {
+        overflow: hidden;
+    }
+}
+
+.swiper-pagination {
+    .swiper-pagination-bullet {
+        background-color: var(--WinDOORS-theme);
+    }
+
+    &.white {
+        .swiper-pagination-bullet {
+            background-color: white;
+            opacity: 0.4;
+        }
+
+        .swiper-pagination-bullet-active {
+            opacity: 1;
+        }
+    }
+}
+
+.pagination-smallline {
+    .swiper-pagination-bullet {
+        height: 6px;
+        width: 20px;
+        border-radius: 3px;
+        margin-right: 0 !important;
+    }
+}
+
+.pagination-rightnumber {
+    position: absolute;
+    top: 45%;
+    right: 15px;
+    left: auto !important;
+    width: auto;
+    text-align: right;
+
+    .swiper-pagination-bullet {
+        background: none !important;
+        color: var(--oneuiux-theme-text-secondary);
+        height: 30px;
+        line-height: 30px;
+        position: relative;
+        display: block;
+        width: 100%;
+        opacity: 0.5;
+
+        &::after {
+            content: "";
+            height: 2px;
+            width: 15px;
+            border-radius: 2px;
+            background-color: var(--oneuiux-theme-text-secondary);
+            display: block;
+            position: absolute;
+            right: 15px;
+            top: 49%;
+        }
+
+        &.swiper-pagination-bullet-active {
+            color: var(--oneuiux-theme-color);
+            opacity: 1;
+
+            &:after {
+                width: 30px;
+                background-color: var(--oneuiux-theme-color);
+            }
+        }
+    }
+}
+
+
+.dailyquote {
+    width: 100%;
+    max-width: 400px;
+    margin: 0;
+
+    .swiper-wrapper {
+        .swiper-slide {
+            padding: 0px;
+        }
+    }
+}
+
+.creditcards {
+    width: 100%;
+
+    .swiper-slide {
+        width: auto;
+        padding: 0 5px;
+
+        &>.card {
+            width: 240px;
+            border-radius: 10px;
+            background-color: var(--WinDOORS-theme);
+            color: var(--WinDOORS-theme-color);
+            overflow: hidden;
+
+            &:before {
+                content: '';
+                height: 200px;
+                width: 200px;
+                position: absolute;
+                top: -20px;
+                left: -100px;
+                background-color: var(--WinDOORS-theme-darken);
+                border-radius: 50%;
+                z-index: 0;
+            }
+
+            &:after {
+                content: '';
+                height: 150px;
+                width: 150px;
+                position: absolute;
+                bottom: -50px;
+                right: -30px;
+                background-color: var(--WinDOORS-theme-grad-1);
+                border-radius: 50%;
+                z-index: 0;
+            }
+
+            .card-body {
+                z-index: 1;
+                background-color: transparent;
+            }
+        }
+
+        .amount-data {
+            opacity: 0;
+            @extend .transition-05;
+        }
+
+        &.swiper-slide-active {
+            .amount-data {
+                opacity: 1;
+            }
+        }
+    }
+}
+
+.creditcardss {
+    width: 100%;
+
+    .swiper-slide {
+        width: auto;
+        padding: 0 5px;
+
+        &>.card {
+            width: 240px;
+            border-radius: 10px;
+            background-color: var(--WinDOORS-theme);
+            color: var(--WinDOORS-theme-color);
+            overflow: hidden;
+
+            &:before {
+                content: '';
+                height: 200px;
+                width: 200px;
+                position: absolute;
+                top: -20px;
+                left: -100px;
+                background-color: var(--WinDOORS-theme-darken);
+                border-radius: 50%;
+                z-index: 0;
+            }
+
+            &:after {
+                content: '';
+                height: 150px;
+                width: 150px;
+                position: absolute;
+                bottom: -50px;
+                right: -30px;
+                background-color: var(--WinDOORS-theme-grad-1);
+                border-radius: 50%;
+                z-index: 0;
+            }
+
+            .card-body {
+                z-index: 1;
+                background-color: transparent;
+            }
+        }
+
+    }
+}
+
+.creditcardsvertical {
+    max-width: 300px;
+    width: 100%;
+    margin: 0 auto;
+
+    .swiper-slide {
+        padding: 0 30px;
+        background-color: transparent;
+
+        &>.card {
+            width: 100%;
+            border-radius: 10px;
+            background-color: var(--WinDOORS-theme);
+            color: var(--WinDOORS-theme-color);
+            overflow: hidden;
+            margin: 0 auto;
+
+            &:before {
+                content: '';
+                height: 200px;
+                width: 200px;
+                position: absolute;
+                top: -20px;
+                left: -100px;
+                background-color: var(--WinDOORS-theme-darken);
+                border-radius: 50%;
+                z-index: 0;
+            }
+
+            &:after {
+                content: '';
+                height: 150px;
+                width: 150px;
+                position: absolute;
+                bottom: -50px;
+                right: -30px;
+                background-color: var(--WinDOORS-theme-grad-1);
+                border-radius: 50%;
+                z-index: 0;
+            }
+
+            .card-body {
+                z-index: 1;
+                background-color: transparent;
+            }
+        }
+
+        .amount-data {
+            opacity: 0;
+            @extend .transition-05;
+        }
+
+        &.swiper-slide-active {
+            .amount-data {
+                opacity: 1;
+            }
+        }
+
+        .swiper-slide-shadow {
+            background-color: transparent;
+        }
+    }
+
+}
+
+.movieposter {
+    width: 100%;
+    padding: 15px 0 30px 0;
+
+    .swiper-slide {
+        background-position: center;
+        background-size: cover;
+        width: 150px;
+        height: auto;
+        border-radius: 6px;
+
+        img {
+            display: block;
+            width: 100%;
+            border-radius: 6px;
+        }
+    }
+}
+
+.usersliders {
+    width: 100%;
+    padding: 15px 0 15px 0;
+
+    .swiper-slide {
+        background-position: center;
+        background-size: cover;
+        width: 235px;
+        height: auto;
+        border-radius: 6px;
+
+        img {
+            display: block;
+            width: 100%;
+            border-radius: 6px;
+        }
+    }
+
+}
+
+.categorychartswiper {
+
+    .swiper-button-prev,
+    .swiper-button-next {
+        &::after {
+            font-size: 20px;
+        }
+    }
+}
+
+.productswiper {
+    .swiper-slide {
+        padding: 0 23px 5px 2px;
+    }
+}
+
+.swiperauto {
+    .swiper-slide {
+        width: auto;
+        padding: 5px 3px;
+    }
+}
+
+.dateselect {
+    padding: 5px 0;
+
+    .swiper-slide {
+        border-radius: 20px;
+        text-align: center;
+        padding: 10px 5px 5px 5px;
+
+        p {
+            font-size: 13px;
+            margin-bottom: 5px;
+        }
+
+        &:hover,
+        &:focus {
+            background-color: rgba(var(--WinDOORS-theme-rgb), 0.05);
+            cursor: pointer;
+
+            .avatar {
+                background-color: rgba(var(--WinDOORS-theme-rgb), 0.1);
+            }
+        }
+
+        &.active {
+            background-color: var(--WinDOORS-theme-color);
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+
+            .avatar {
+                background-color: var(--WinDOORS-theme);
+                color: var(--WinDOORS-theme-color);
+            }
+        }
+    }
+}
+
+@media screen and (min-width: 1100px) {
+    .dailyquote {
+        max-width: 440px;
+    }
+}
+
+@media screen and (min-width: 1300px) {
+    .dailyquote {
+        max-width: 500px;
+    }
+}

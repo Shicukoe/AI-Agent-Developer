@@ -81,13 +81,23 @@ Card đặt trong list **`Epic`** (có nhãn AI) = một feature lớn:
 
 ```
 [Epic] kéo card vào list Epic → PlannerAgent lập plan tổng (nhiều phần việc) → chờ "plan approve"
-   → gắn "plan approve" → EpicManager TỰ TẠO N card con (trong list Planning), mỗi card:
-        • mô tả có dòng "Epic: <epicCardId>" (link ngược) + tiêu chí nghiệm thu
-        • gắn sẵn nhãn AI + pre-approve (có PLAN.md, status plan_approved)
-        • 1 dòng trên checklist "Tasks" của epic để theo dõi
-   → bạn kéo từng card con sang Dev → Test (song song được)
-   → card con Test PASS → tick checklist trên epic + ghi memory tiến độ
+   → gắn "plan approve" → EpicManager TẠO integration branch epic/<short> (từ dev) + N card con
+        (theo thứ tự sequence), mỗi card:
+        • mô tả có "Epic: <epicCardId>" + sequence + tiêu chí nghiệm thu
+        • gắn sẵn nhãn AI + pre-approve (PLAN.md, status plan_approved); metadata: sequence, base_branch
+        • 1 dòng trên checklist "Tasks" của epic
+   → kéo card con theo THỨ TỰ sequence sang Dev → Test
+        • Dev: branch tách từ integration branch epic/<short> (thấy code các card con trước)
+        • cổng tuần tự: card con chưa tới lượt (còn card sequence nhỏ hơn chưa completed) sẽ bị chặn
+   → card con Test PASS → TỰ MERGE branch con vào epic/<short> (conflict → review_failed, kéo lại Dev)
+        → tick checklist + nhắc card con kế tiếp
+   → tất cả card con xong → epic/<short> sẵn sàng để bạn merge thủ công vào dev
 ```
+
+> **Epic A+B (tuần tự + integration branch):** card con không còn branch độc lập từ `dev` mà nối tiếp
+> nhau trên `epic/<short>`, nên card sau thấy được code card trước (hết lỗi "thiếu code") và conflict
+> được phát hiện/giải quyết từng bước thay vì dồn về cuối. Merge được serialize theo epic (mutex).
+> Epic cũ (tạo trước cơ chế này, không có `base_branch`) vẫn chạy kiểu cũ: branch từ `dev`, merge tay.
 
 - **Card con / card điều chỉnh** có dòng `Epic: <id>` → Planner/Dev tự **nạp thêm context epic**
   (PLAN.md tổng + 🧠 memory của epic) qua `CardMemory.epicContext`. Đây là cách xử lý task phát

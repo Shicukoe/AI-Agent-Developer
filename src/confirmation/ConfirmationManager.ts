@@ -54,18 +54,28 @@ export const ConfirmationManager = {
         await TrelloClient.addComment(cardId, '⏳ **[AI AGENT]** Task đang chạy, vui lòng đợi xong rồi thử lại.');
         return;
       }
-      // RETRY định tuyến theo stage hiện tại của card: ở Refine thì làm rõ lại, ngược lại lập lại plan.
+      // RETRY chạy lại ĐÚNG stage hiện tại của card (không cần kéo qua lại):
+      //   Refine → làm rõ lại · Dev → code lại · Test → review lại · còn lại → lập lại plan.
       const stage = await this.currentStage(task);
-      if (stage === 'refine') {
-        await TrelloClient.addComment(cardId, '🔄 **[AI AGENT]** Đang làm rõ lại task...');
-        log.info({ taskId: task.id, memberId, prevStatus: task.status }, 'Re-refining on RETRY (refine stage)');
-        await StageRouter.runRefine(task);
-        return;
+      log.info({ taskId: task.id, memberId, stage, prevStatus: task.status }, 'RETRY by stage');
+      switch (stage) {
+        case 'refine':
+          await TrelloClient.addComment(cardId, '🔄 **[AI AGENT]** Đang làm rõ lại task...');
+          await StageRouter.runRefine(task);
+          return;
+        case 'dev':
+          await TrelloClient.addComment(cardId, '🔄 **[AI AGENT]** Đang chạy lại Dev (code lại theo phản hồi)...');
+          await StageRouter.runDev(task);
+          return;
+        case 'test':
+          await TrelloClient.addComment(cardId, '🔄 **[AI AGENT]** Đang review lại...');
+          await StageRouter.runTest(task);
+          return;
+        default:
+          await TrelloClient.addComment(cardId, '🔄 **[AI AGENT]** Đang lập lại kế hoạch...');
+          await StageRouter.runPlanning(task);
+          return;
       }
-      await TrelloClient.addComment(cardId, '🔄 **[AI AGENT]** Đang lập lại kế hoạch...');
-      log.info({ taskId: task.id, memberId, prevStatus: task.status }, 'Re-planning on RETRY');
-      await StageRouter.runPlanning(task);
-      return;
     }
 
     if (isModify) {

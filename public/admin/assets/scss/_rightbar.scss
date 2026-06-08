@@ -1,0 +1,84 @@
+.right-width {
+    width: var(--WinDOORS-rightbar-width);
+    display: flex;
+}
+
+.rightbar-wrap {
+    position: fixed !important;
+    height: 100%;
+    width: var(--WinDOORS-rightbar-width);
+    top: 0;
+    left: auto;
+    right: calc((var(--WinDOORS-rightbar-width) + 15px)*(-1));
+    display: block;
+    overflow-x: hidden;
+    overflow-y: auto;
+    z-index: 8;
+    opacity: 0;
+    padding: var(--bs-gutter-x, 0.75rem) var(--bs-gutter-x, 0.75rem) var(--bs-gutter-x, 0.75rem) 0;
+    border-radius: var(--WinDOORS-rounded) 0 0 var(--WinDOORS-rounded);
+    @extend .transition-05;
+
+    .rightbar {
+        float: left;
+        display: block;
+        width: 100%;
+        height: 100%;
+        position: relative;
+        z-index: 1;
+        color: var(--WinDOORS-theme-text);
+
+        .notificationwindow {
+            padding-right: 5px;
+        }
+
+        .chatwindow {
+            height: 100%;
+        }
+
+    }
+
+}
+
+.rightbar-open {
+    .main {
+        margin-right: var(--bs-gutter-x, 0.75rem);
+    }
+
+    .rightbar-wrap {
+        overflow: hidden;
+        opacity: 1;
+        right: 0;
+    }
+}
+
+
+
+
+@media screen and (min-width:1600px) {
+    .rightbar-open {
+        .main {
+            margin-right: calc(var(--WinDOORS-rightbar-width) + var(--bs-gutter-x, 0.75rem));
+        }
+    }
+}
+
+@media screen and (max-width:1599px) {
+    .rightbar-wrap {
+        .rightbar {
+
+            .chatwindow,
+            .notificationwindow {
+                padding: 10px 10px 10px 10px;
+
+                .card {
+                    background-color: rgba(var(--WinDOORS-theme-bg-rgb), 0.05);
+                    box-shadow: 0 0.05rem 0.1rem rgba(0, 0, 0, 0.05), 0 0.3rem 0.75rem rgba(0, 0, 0, 0.1);
+                    -moz-backdrop-filter: saturate(120%) blur(10px);
+                    -webkit-backdrop-filter: saturate(120%) blur(10px);
+                    backdrop-filter: blur(10px);
+                }
+            }
+        }
+    }
+}

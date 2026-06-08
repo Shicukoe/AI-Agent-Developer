@@ -1,0 +1,190 @@
+.dark-mode {
+
+    /* color schemes */
+    --WinDOORS-theme-bg-rgb: 55, 55, 55;
+    --WinDOORS-theme-bg: #000000;
+    --WinDOORS-theme: #3d99fc;
+    --WinDOORS-theme-rgb: 61, 153, 252;
+    --WinDOORS-theme-darken: #003f83;
+    --WinDOORS-theme-color: #FFFFFF;
+    --WinDOORS-theme-text: #FFFFFF;
+    --WinDOORS-theme-text-secondary: #999999;
+    --WinDOORS-formelemnt-bg: #000000;
+    --WinDOORS-border-color: rgba(255, 255, 255, 0.085);
+    --WinDOORS-header-text: #FFFFFF;
+
+    /* gradient bg colors */
+    --WinDOORS-theme-grad-1: #00B9FF;
+    --WinDOORS-theme-grad-2: #2253c3;
+    --WinDOORS-theme-grad-3: #00152c;
+
+    /* gradient text colors */
+    --WinDOORS-theme-text-grad-1: #ff34bb;
+    --WinDOORS-theme-text-grad-2: #8758db;
+
+
+    /*============================*/
+    /* theme colors customization */
+    /*============================*/
+
+    .theme-blue {
+        /* color schemes */
+        --WinDOORS-theme: #3486df;
+        --WinDOORS-theme-rgb: 1, 94, 194;
+        --WinDOORS-theme-darken: #003f83;
+
+        /* gradient bg colors */
+        --WinDOORS-theme-grad-1: #00c5dd;
+        --WinDOORS-theme-grad-2: #2253c3;
+        --WinDOORS-theme-grad-3: #002042;
+
+        /* gradient text colors */
+        --WinDOORS-theme-text-grad-1: #ff34bb;
+        --WinDOORS-theme-text-grad-2: #8758db;
+    }
+
+    .theme-indigo {
+        /* color schemes */
+        --WinDOORS-theme: #5065db;
+        --WinDOORS-theme-rgb: 63, 81, 181;
+        --WinDOORS-theme-darken: #1d2d86;
+    
+        /* gradient bg colors */
+        --WinDOORS-theme-grad-1: #3f51b5;
+        --WinDOORS-theme-grad-2: #192c97;
+        --WinDOORS-theme-grad-3: #000e5f;
+    
+        /* gradient text colors */
+        --WinDOORS-theme-text-grad-1: #4dafff;
+        --WinDOORS-theme-text-grad-2: #ff4b87;
+    }
+    
+    .theme-purple {
+        /* color schemes */
+        --WinDOORS-theme: #895eda;
+        --WinDOORS-theme-rgb: 111, 66, 193;
+        --WinDOORS-theme-darken: #5f2cbe;
+
+        /* gradient bg colors */
+        --WinDOORS-theme-grad-1: #8093ff;
+        --WinDOORS-theme-grad-2: #7f4ae2;
+        --WinDOORS-theme-grad-3: #190047;
+
+        /* gradient text colors */
+        --WinDOORS-theme-text-grad-1: #33b7f5;
+        --WinDOORS-theme-text-grad-2: #ff3abd;
+    }
+
+    .theme-pink {
+        /* color schemes */
+        --WinDOORS-theme: #f53fa9;
+        --WinDOORS-theme-rgb: 255, 7, 152;
+        --WinDOORS-theme-darken: #b40069;
+
+        /* gradient bg colors */
+        --WinDOORS-theme-grad-1: #ff53b7;
+        --WinDOORS-theme-grad-2: #4600b8;
+        --WinDOORS-theme-grad-3: #3b0023;
+
+        /* gradient text colors */
+        --WinDOORS-theme-text-grad-1: #079cff;
+        --WinDOORS-theme-text-grad-2: #ff0798;
+    }
+
+    .theme-red {
+        /* color schemes */
+        --WinDOORS-theme: #dd2739;
+        --WinDOORS-theme-rgb: 240, 61, 79;
+        --WinDOORS-theme-darken: #c40e20;
+
+        /* gradient bg colors */
+        --WinDOORS-theme-grad-1: #ff7790;
+        --WinDOORS-theme-grad-2: #f22433;
+        --WinDOORS-theme-grad-3: #490007;
+
+        /* gradient text colors */
+        --WinDOORS-theme-text-grad-1: #ff073d;
+        --WinDOORS-theme-text-grad-2: #9c27b0;
+    }
+
+    .theme-yellow {
+        /* color schemes */
+        --WinDOORS-theme: #fdba00;
+        --WinDOORS-theme-rgb: 255, 193, 7;
+        --WinDOORS-theme-darken: #db8400;
+
+        /* gradient bg colors */
+        --WinDOORS-theme-grad-1: #ffe607;
+        --WinDOORS-theme-grad-2: #f7b900;
+        --WinDOORS-theme-grad-3: #422800;
+
+        /* gradient text colors */
+        --WinDOORS-theme-text-grad-1: #ff9100;
+        --WinDOORS-theme-text-grad-2: #e7004d;
+    }
+
+    .theme-green {
+        /* color schemes */
+        --WinDOORS-theme: #78c300;
+        --WinDOORS-theme-rgb: 120, 195, 0;
+        --WinDOORS-theme-darken: #48a000;
+
+        /* gradient bg colors */
+        --WinDOORS-theme-grad-1: #c6e90e;
+        --WinDOORS-theme-grad-2: #53be15;
+        --WinDOORS-theme-grad-3: #1f4400;
+
+        /* gradient text colors */
+        --WinDOORS-theme-text-grad-1: #8700f5;
+        --WinDOORS-theme-text-grad-2: #ff075a;
+    }
+
+    .theme-orange {
+        /* color schemes */
+        --WinDOORS-theme: #ff9800;
+        --WinDOORS-theme-rgb: 255, 152, 0;
+        --WinDOORS-theme-darken: #ff7300;
+
+        /* gradient bg colors */
+        --WinDOORS-theme-grad-1: #ffa622;
+        --WinDOORS-theme-grad-2: #e46e00;
+        --WinDOORS-theme-grad-3: #3f1c00;
+
+        /* gradient text colors */
+        --WinDOORS-theme-text-grad-1: #00bcd4;
+        --WinDOORS-theme-text-grad-2: #673ab7;
+    }
+
+    .theme-cyan {
+        /* color schemes */
+        --WinDOORS-theme: #01bcdd;
+        --WinDOORS-theme-rgb: 3, 214, 241;
+        --WinDOORS-theme-darken: #009de6;
+
+        /* gradient bg colors */
+        --WinDOORS-theme-grad-1: rgb(67, 233, 255);
+        --WinDOORS-theme-grad-2: #00bdd6;
+        --WinDOORS-theme-grad-3: #002435;
+
+        /* gradient text colors */
+        --WinDOORS-theme-text-grad-1: #3f51b5;
+        --WinDOORS-theme-text-grad-2: #e91e63;
+    }
+
+    .theme-teal {
+        /* color schemes */
+        --WinDOORS-theme: #20c997;
+        --WinDOORS-theme-rgb: 32, 201, 151;
+        --WinDOORS-theme-darken: #009e6f;
+
+        /* gradient bg colors */
+        --WinDOORS-theme-grad-1: #23dda5;
+        --WinDOORS-theme-grad-2: #0f9b71;
+        --WinDOORS-theme-grad-3: #00422e;
+
+        /* gradient text colors */
+        --WinDOORS-theme-text-grad-1: #ffc107;
+        --WinDOORS-theme-text-grad-2: #03a9f4;
+    }
+    
+}

@@ -75,7 +75,7 @@ export const DocCardExecutor: Executor = {
 
     const doc = await ClaudeCliClient.runForJson<DocResult>(
       buildPrompt(card.name, card.desc, memoryContext),
-      { allowedTools: ['Read', 'Glob', 'Grep'], cwd: config.GIT_REPO_PATH, maxTurns: 20 },
+      { allowedTools: ['Read', 'Glob', 'Grep'], cwd: config.GIT_REPO_PATH, maxTurns: 20, label: `doc:${task.card_id.slice(0, 6)}` },
     );
 
     const title = (doc.card_title || `Tài liệu: ${card.name}`).slice(0, 200);

@@ -56,6 +56,28 @@ export const GitClient = {
     GitOperationRepository.log(taskId, 'merge', { branch: `${sourceBranch} -> ${targetBranch}` });
   },
 
+  /**
+   * Thử merge sourceBranch vào branch đang checkout tại worktreePath (integration worktree).
+   * Conflict/lỗi → tự `merge --abort` và trả ok:false để caller xử lý mềm (không throw).
+   */
+  async tryMerge(taskId: string, worktreePath: string, sourceBranch: string): Promise<{ ok: boolean; output: string }> {
+    try {
+      const { stdout } = await ShellExecutor.git(
+        ['merge', '--no-ff', sourceBranch, '-m', `Merge ${sourceBranch}`],
+        worktreePath,
+      );
+      log.info({ taskId, sourceBranch }, 'Merged into integration branch');
+      GitOperationRepository.log(taskId, 'merge', { branch: sourceBranch, output: 'ok' });
+      return { ok: true, output: stdout };
+    } catch (err) {
+      await ShellExecutor.git(['merge', '--abort'], worktreePath).catch(() => {});
+      const msg = err instanceof Error ? err.message : String(err);
+      log.warn({ taskId, sourceBranch, err: msg.slice(0, 200) }, 'Merge conflict — aborted');
+      GitOperationRepository.log(taskId, 'merge', { branch: sourceBranch, output: `conflict: ${msg.slice(0, 200)}` });
+      return { ok: false, output: msg };
+    }
+  },
+
   async push(taskId: string, repoPath: string, branchName: string): Promise<void> {
     await ShellExecutor.git(['push', '-u', 'origin', branchName], repoPath);
     log.info({ branchName }, 'Pushed');

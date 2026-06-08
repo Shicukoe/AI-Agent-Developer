@@ -151,6 +151,14 @@ export const StageRouter = {
     // Epic: sinh card con thay vì chờ kéo sang Dev
     if (task.task_type === 'epic') {
       try {
+        // Idempotent: nếu epic đã có card con thì KHÔNG tạo lại (tránh trùng khi onPlanApprove chạy 2 lần).
+        const existing = TaskRepository.findSubTasks(task.id);
+        if (existing.length > 0) {
+          await TrelloClient.addComment(cardId,
+            `ℹ️ **[AI AGENT]** Epic này đã có **${existing.length}** card con — bỏ qua việc tạo lại. Nếu muốn làm lại từ đầu, hãy xoá các card con cũ trước.`);
+          log.info({ taskId: task.id, existing: existing.length }, 'Epic children already exist — skip createChildren');
+          return;
+        }
         const meta = task.metadata ? JSON.parse(task.metadata) as { epic_plan?: PlanResponse } : {};
         if (!meta.epic_plan) {
           await TrelloClient.addComment(cardId, '⚠️ **[AI AGENT]** Không tìm thấy plan của epic để tạo card con. Hãy lập lại plan (reply `RETRY`).');
@@ -218,6 +226,28 @@ export const StageRouter = {
       return;
     }
 
+    // Epic: cổng tuần tự theo sequence + branch từ integration branch (để thấy code card con trước).
+    let baseBranch = config.GIT_DEFAULT_BASE_BRANCH;
+    const childMeta = EpicManager.getChildMeta(task);
+    if (childMeta) {
+      const epicTask = TaskRepository.findByCardId(childMeta.epic_card_id);
+      if (epicTask) {
+        const mySeq = childMeta.sequence ?? 0;
+        const blocking = TaskRepository.findSubTasks(epicTask.id)
+          .filter(s => s.id !== task.id && EpicManager.childSequence(s) < mySeq && s.status !== 'completed')
+          .sort((a, b) => EpicManager.childSequence(a) - EpicManager.childSequence(b));
+        if (blocking.length > 0) {
+          const names = blocking.map(b => `#${EpicManager.childSequence(b)} ${b.card_name}`).join('\n- ');
+          await TrelloClient.addComment(task.card_id,
+            `⏳ **[AI AGENT]** Chưa tới lượt card con này (sequence ${mySeq}). Cần hoàn thành trước:\n- ${names}\n\n` +
+            `Kéo lại **Dev** sau khi các card đó PASS (code của chúng sẽ có sẵn trên integration branch).`);
+          log.info({ taskId: task.id, mySeq, blocking: blocking.length }, 'Dev blocked by sequence gate');
+          return;
+        }
+      }
+      if (childMeta.base_branch) baseBranch = childMeta.base_branch;
+    }
+
     try {
       TaskRepository.setStatus(task.id, 'developing');
       TaskRepository.heartbeat(task.id);
@@ -227,7 +257,7 @@ export const StageRouter = {
       let worktreePath = task.worktree_path ?? undefined;
       if (!worktreePath || !WorktreeManager.exists(task.id)) {
         branchName = `feature/${task.card_id.slice(0, 8)}-${slugify(card.name)}`;
-        worktreePath = await WorktreeManager.add(task.id, branchName, config.GIT_DEFAULT_BASE_BRANCH);
+        worktreePath = await WorktreeManager.add(task.id, branchName, baseBranch);
         TaskRepository.update(task.id, { branch_name: branchName, worktree_path: worktreePath });
       }
 
@@ -277,11 +307,31 @@ export const StageRouter = {
       const result = await ReviewAgent.review(fresh, []);
 
       if (result.verdict === 'PASS') {
+        // Card con epic (có integration branch): merge vào integration branch TRƯỚC khi đánh dấu completed.
+        const childMeta = EpicManager.getChildMeta(fresh);
+        if (childMeta?.base_branch) {
+          const merge = await EpicManager.mergeChildIntoIntegration(fresh);
+          if (!merge.ok) {
+            TaskRepository.setStatus(task.id, 'review_failed');
+            await CardMemory.post(task.card_id, 'Merge conflict',
+              `Review PASS nhưng merge vào \`${childMeta.base_branch}\` bị conflict:\n\`\`\`\n${merge.output.slice(0, 600)}\n\`\`\``).catch(() => {});
+            await TrelloClient.addComment(task.card_id,
+              `⚠️ **[AI AGENT]** Review PASS nhưng **merge vào integration branch \`${childMeta.base_branch}\` bị CONFLICT**. ` +
+              `Kéo lại **Dev** để rebase/sửa rồi Test lại (chi tiết đã ghi memory).`);
+            return;
+          }
+        }
+
         TaskRepository.setStatus(task.id, 'completed');
-        await TrelloClient.addComment(task.card_id,
-          `✅ **[AI AGENT]** Review PASS. Branch \`${fresh.branch_name}\` sẵn sàng merge vào \`${config.GIT_DEFAULT_BASE_BRANCH}\`.`);
-        // Nếu là card con của một epic: tick tiến độ trên epic
-        await EpicManager.markChildDone(fresh);
+        const mergedNote = childMeta?.base_branch
+          ? ` Đã merge vào integration branch \`${childMeta.base_branch}\`.`
+          : ` Branch \`${fresh.branch_name}\` sẵn sàng merge vào \`${config.GIT_DEFAULT_BASE_BRANCH}\`.`;
+        await TrelloClient.addComment(task.card_id, `✅ **[AI AGENT]** Review PASS.${mergedNote}`);
+        // Card con epic: tick tiến độ + nhắc card con kế tiếp (hoặc báo epic hoàn tất).
+        if (childMeta) {
+          await EpicManager.markChildDone(fresh);
+          await EpicManager.announceNext(fresh);
+        }
       } else {
         TaskRepository.setStatus(task.id, 'review_failed');
         // Ghi memory các vấn đề cần sửa để khi kéo lại Dev, DevAgent nạp được
@@ -291,7 +341,7 @@ export const StageRouter = {
         await CardMemory.post(task.card_id, 'Review FAIL — cần sửa',
           `${result.summary}\n\n**Vấn đề:**\n${issueLines || '—'}`).catch(() => {});
         await TrelloClient.addComment(task.card_id,
-          '❌ **[AI AGENT]** Review FAIL. Kéo card lại list **Dev** để sửa (chi tiết đã ghi vào memory).');
+          '❌ **[AI AGENT]** Review FAIL. Kéo card lại list **Dev** để sửa — **không cần** qua Refine (kế hoạch/spec vẫn giữ, chi tiết lỗi đã ghi vào memory). Đang ở Dev thì chỉ cần reply `RETRY`.');
       }
     } catch (err) {
       await OrchestratorAgent.handleError(task, err);

@@ -91,6 +91,7 @@ export const PlannerAgent = {
         cwd: config.GIT_REPO_PATH,
         maxTurns: config.PLANNING_MAX_TURNS,
         timeoutMs: config.PLANNING_TIMEOUT_MS,
+        label: `plan:${task.card_id.slice(0, 6)}`,
       }
     );
 

@@ -1,0 +1,78 @@
+/* tags */
+.tag {
+    height: 32px;
+    line-height: 26px;
+    vertical-align: middle;
+    border-radius: 15px;
+    padding: 1px 15px;
+    background-color: var(--WinDOORS-theme);
+    color: var(--WinDOORS-theme-color);
+    display: inline-block;
+
+    figure {
+        vertical-align: middle;
+        &:first-child{
+            margin-left: -14px;
+        }
+        &:last-child{
+            margin-right: -14px;
+        }
+    }
+
+    &>i {
+        margin-right: 5px;
+        font-size: 16px;
+        display: inline-block;
+        vertical-align: top;
+        &:first-child{
+            margin-left: -14px;
+        }
+        &:last-child{
+            margin-right: -7px;
+        }
+    }
+
+    &.tag-sm {
+        height: 22px;
+        line-height: 20px;
+        vertical-align: middle;
+        font-size: 12px;
+        padding: 1px 10px;
+        
+        &>i {
+            margin-right: 3px;
+            font-size: 12px;
+            &:first-child{
+                margin-left: -3px;
+            }
+            &:last-child{
+                margin-right: -3px;
+            }
+        }
+    }
+
+    &.tag-lg {
+        height: 40px;
+        line-height: 40px;
+        font-size: 16px;
+    }
+
+    &:hover,
+    &:focus,
+    &.active {
+        background-color: var(--WinDOORS-theme-darken);
+        color: var(--WinDOORS-theme-color) !important;
+    }
+
+    &.bg-light-theme{
+        background-color: rgba(var(--WinDOORS-theme-rgb), 0.15) !important;
+        color: var(--WinDOORS-theme) !important;
+
+        &:hover,
+        &:focus,
+        &.active {
+            background-color: var(--WinDOORS-theme-darken) !important;
+            color: var(--WinDOORS-theme-color) !important;
+        }
+    }
+}

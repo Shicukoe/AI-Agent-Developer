@@ -4,6 +4,7 @@ import { TrelloConnector } from './trello/TrelloConnector.js';
 import { TrelloClient } from './trello/TrelloClient.js';
 import { StageRouter } from './agents/StageRouter.js';
 import { ConfirmationManager } from './confirmation/ConfirmationManager.js';
+import { AdminServer } from './admin/AdminServer.js';
 import { TaskRepository } from './state/TaskRepository.js';
 import { WorktreeManager } from './git/WorktreeManager.js';
 import { config, stageForListName, hasAiLabel, hasPlanApproveLabel, firstInfoListName } from './config.js';
@@ -195,6 +196,10 @@ async function main(): Promise<void> {
   connector.start();
   logger.info({ mode: config.TRELLO_USE_WEBHOOK ? 'webhook' : 'polling' }, 'Trello connector started');
 
+  // Admin backend (API + UI) — chạy độc lập với chế độ Trello (webhook/polling).
+  const adminServer = new AdminServer();
+  adminServer.start();
+
   // Ensure each board has a persistent instruction card in the Info list.
   for (const boardId of config.TRELLO_BOARD_IDS) {
     await ensureBoardInfoCard(boardId).catch(err =>
@@ -225,6 +230,7 @@ async function main(): Promise<void> {
     process.on(sig, () => {
       logger.info(`Received ${sig}, shutting down`);
       connector.stop();
+      adminServer.stop();
       closeDb();
       process.exit(0);
     });

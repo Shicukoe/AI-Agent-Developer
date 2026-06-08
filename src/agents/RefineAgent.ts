@@ -95,7 +95,7 @@ export const RefineAgent = {
 
     const refined = await ClaudeCliClient.runForJson<RefineResponse>(
       buildRefinePrompt(card, memoryContext),
-      { allowedTools: ['Read', 'Glob', 'Grep'], cwd: config.GIT_REPO_PATH, maxTurns: 20 },
+      { allowedTools: ['Read', 'Glob', 'Grep'], cwd: config.GIT_REPO_PATH, maxTurns: 20, label: `refine:${task.card_id.slice(0, 6)}` },
     );
 
     // Ghi đè mô tả card theo format chuẩn, giữ nguyên yêu cầu gốc (idempotent).

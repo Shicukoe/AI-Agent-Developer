@@ -1,0 +1,36 @@
+.footer {
+    padding-top: 0.75rem;
+    padding-bottom: 0.75em;
+    z-index: 0;
+    flex-shrink: 0;
+
+    .nav {
+        .nav-item {
+            padding: 0 5px;
+
+            .nav-link {
+                padding: 0px;
+            }
+        }
+    }
+
+
+    &.text-white {
+        --WinDOORS-theme: #ffffff;
+        color: #ffffff;
+
+        .nav-link,
+        .text-dark {
+            color: var(--WinDOORS-theme) !important;
+        }
+
+        .text-secondary {
+            color: rgba(255, 255, 255, 0.7) !important;
+        }
+    }
+}
+
+.footer-page {
+    background-color: rgba(var(--WinDOORS-theme-rgb), 0.025);
+    border-radius: 0 0 var(--widoors-rounded) var(--widoors-rounded);
+}

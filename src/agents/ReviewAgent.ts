@@ -11,6 +11,17 @@ import type { ReviewResponse } from '../claude/types.js';
 
 const log = childLogger('review-agent');
 
+/** Lấy integration branch (base_branch) nếu task là card con của epic, ngược lại null. */
+function parseChildBase(metadata: string | null): string | null {
+  if (!metadata) return null;
+  try {
+    const m = JSON.parse(metadata) as { epic_card_id?: string; base_branch?: string };
+    return m.epic_card_id && m.base_branch ? m.base_branch : null;
+  } catch {
+    return null;
+  }
+}
+
 function buildReviewPrompt(diff: string, taskDescription: string, acceptanceCriteria: string[]): string {
   const base = PromptBuilder.reviewer(diff, taskDescription, acceptanceCriteria)
     .replace(/\nRespond via.*$/s, '');
@@ -47,9 +58,14 @@ export const ReviewAgent = {
 
     const worktreePath = task.worktree_path!;
 
+    // Base để so diff: card con epic review vs integration branch (epic/<short>); còn lại vs base mặc định.
+    let baseBranch = config.GIT_DEFAULT_BASE_BRANCH;
+    const childMeta = parseChildBase(task.metadata);
+    if (childMeta) baseBranch = childMeta;
+
     let diff: string;
     try {
-      diff = await GitClient.getDiff(worktreePath, config.GIT_DEFAULT_BASE_BRANCH);
+      diff = await GitClient.getDiff(worktreePath, baseBranch);
     } catch {
       diff = await GitClient.getDiff(worktreePath, 'HEAD~1').catch(() => '(no diff available)');
     }
@@ -68,13 +84,29 @@ export const ReviewAgent = {
     const card = await TrelloClient.getCard(task.card_id);
     const taskDescription = `${card.name}\n\n${card.desc}`;
 
-    const result = await ClaudeCliClient.runForJson<ReviewResponse>(
-      buildReviewPrompt(diff, taskDescription, acceptanceCriteria),
-      {
-        // No file tools — diff is provided in prompt, review is independent
-        maxTurns: 3,
-      }
-    );
+    let result: ReviewResponse;
+    try {
+      result = await ClaudeCliClient.runForJson<ReviewResponse>(
+        buildReviewPrompt(diff, taskDescription, acceptanceCriteria),
+        {
+          // No file tools — diff is provided in prompt, review is independent
+          maxTurns: 8,
+          label: `review:${task.card_id.slice(0, 6)}`,
+        }
+      );
+    } catch (err) {
+      // Không trích được JSON (vd hết lượt) → FAIL mềm, retry được, KHÔNG để task fail cứng.
+      log.warn({ taskId: task.id, err: String(err).slice(0, 200) }, 'Review JSON parse failed — soft FAIL');
+      const soft: ReviewResponse = {
+        verdict: 'FAIL',
+        issues: [{ file: '', severity: 'warning', description: 'Reviewer không trả về kết quả hợp lệ (có thể diff quá lớn hoặc hết lượt). Hãy thử review lại (reply RETRY ở Test) hoặc chia nhỏ thay đổi.' }],
+        conventions_check: false,
+        summary: 'Không nhận được kết quả review hợp lệ từ AI reviewer.',
+      };
+      await this.persistResult(task.id, undefined, attempt, soft);
+      await this.postReviewComment(task, soft);
+      return soft;
+    }
 
     await this.persistResult(task.id, undefined, attempt, result);
     await this.postReviewComment(task, result);

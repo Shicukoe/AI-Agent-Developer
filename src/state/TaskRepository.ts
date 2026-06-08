@@ -92,6 +92,46 @@ export const TaskRepository = {
     return getDb().prepare('SELECT * FROM tasks WHERE status = ?').all(status) as Task[];
   },
 
+  /** Liệt kê task cho admin dashboard: lọc theo nhiều status + tìm theo tên card, phân trang. */
+  list(filter: { statuses?: TaskStatus[]; q?: string; limit?: number; offset?: number } = {}): Task[] {
+    const where: string[] = [];
+    const params: Record<string, unknown> = {};
+    if (filter.statuses && filter.statuses.length > 0) {
+      const placeholders = filter.statuses.map((_, i) => `@s${i}`).join(', ');
+      where.push(`status IN (${placeholders})`);
+      filter.statuses.forEach((s, i) => { params[`s${i}`] = s; });
+    }
+    if (filter.q) {
+      where.push('card_name LIKE @q');
+      params.q = `%${filter.q}%`;
+    }
+    const whereSql = where.length > 0 ? `WHERE ${where.join(' AND ')}` : '';
+    params.limit = filter.limit ?? 100;
+    params.offset = filter.offset ?? 0;
+    return getDb()
+      .prepare(`SELECT * FROM tasks ${whereSql} ORDER BY updated_at DESC LIMIT @limit OFFSET @offset`)
+      .all(params) as Task[];
+  },
+
+  /** Đếm số task (tùy chọn lọc theo nhiều status) — dùng cho phân trang & thẻ KPI. */
+  count(statuses?: TaskStatus[]): number {
+    if (!statuses || statuses.length === 0) {
+      return (getDb().prepare('SELECT COUNT(*) AS n FROM tasks').get() as { n: number }).n;
+    }
+    const placeholders = statuses.map((_, i) => `@s${i}`).join(', ');
+    const params: Record<string, unknown> = {};
+    statuses.forEach((s, i) => { params[`s${i}`] = s; });
+    return (getDb().prepare(`SELECT COUNT(*) AS n FROM tasks WHERE status IN (${placeholders})`).get(params) as { n: number }).n;
+  },
+
+  /** Đếm task gom theo status: { [status]: n } — cho dashboard. */
+  countByStatus(): Record<string, number> {
+    const rows = getDb().prepare('SELECT status, COUNT(*) AS n FROM tasks GROUP BY status').all() as Array<{ status: string; n: number }>;
+    const out: Record<string, number> = {};
+    for (const r of rows) out[r.status] = r.n;
+    return out;
+  },
+
   findActiveByCardId(cardId: string): Task | undefined {
     return getDb().prepare(`
       SELECT * FROM tasks WHERE card_id = ? AND status IN (

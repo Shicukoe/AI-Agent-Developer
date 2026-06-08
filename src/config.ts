@@ -80,6 +80,17 @@ const schema = z.object({
   // Leave empty to auto-detect from PATH or common install locations
   CLAUDE_CLI_PATH: z.string().optional(),
 
+  // Stream output thật của Claude (đọc/ghi file, suy luận) ra console theo thời gian thực.
+  // true = thấy chi tiết agent đang làm gì; false = chỉ thấy status.
+  AGENT_VERBOSE: bool(true),
+
+  // Admin backend (API + UI tích hợp, chạy chung process với agent)
+  ADMIN_PORT: num(3457),
+  // Token tĩnh cho admin API. Để trống = TẮT admin server (an toàn mặc định).
+  ADMIN_API_TOKEN: z.string().optional(),
+  // Chỉ bind localhost mặc định; đổi thành 0.0.0.0 nếu muốn truy cập từ máy khác (nhớ đặt token mạnh).
+  ADMIN_BIND_HOST: z.string().default('127.0.0.1'),
+
   // General
   NODE_ENV: z.enum(['development', 'production', 'test']).default('development'),
   LOG_LEVEL: z.string().default('info'),

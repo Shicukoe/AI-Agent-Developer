@@ -29,11 +29,31 @@ export const WorktreeManager = {
     // Fetch latest base branch
     await ShellExecutor.git(['fetch', 'origin', fromBranch], repoPath).catch(() => {});
 
-    // Create worktree with new branch
-    await ShellExecutor.git(
-      ['worktree', 'add', '-b', branchName, path, `origin/${fromBranch}`],
-      repoPath,
-    );
+    // Branch có sẵn chưa? (re-dev sau khi worktree bị xoá nhưng branch còn) → dùng lại branch
+    // thay vì '-b' (sẽ lỗi "branch already exists"). Branch mới → tạo từ origin/<base>.
+    const branchExists = await ShellExecutor
+      .git(['rev-parse', '--verify', '--quiet', `refs/heads/${branchName}`], repoPath)
+      .then(() => true)
+      .catch(() => false);
+
+    if (branchExists) {
+      log.info({ branchName }, 'Branch already exists — reusing it for the worktree');
+      await ShellExecutor.git(['worktree', 'add', path, branchName], repoPath);
+    } else {
+      // Base ref: ưu tiên origin/<base> (branch remote như dev); nếu không có (vd integration branch
+      // 'epic/<short>' chỉ tồn tại local) thì dùng ref local <base>.
+      let baseRef = `origin/${fromBranch}`;
+      const hasOrigin = await ShellExecutor
+        .git(['rev-parse', '--verify', '--quiet', baseRef], repoPath)
+        .then(() => true)
+        .catch(() => false);
+      if (!hasOrigin) baseRef = fromBranch;
+
+      await ShellExecutor.git(
+        ['worktree', 'add', '-b', branchName, path, baseRef],
+        repoPath,
+      );
+    }
 
     // Configure git user in worktree
     await ShellExecutor.git(['config', 'user.name', config.GIT_USER_NAME], path);

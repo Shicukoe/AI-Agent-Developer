@@ -1,0 +1,68 @@
+.product-tour-js-cover-layer {
+    background-color: rgba(var(--WinDOORS-theme-bg-rgb), 0.75);
+}
+
+.product-tour-js-single-step {
+    --product-tour-js-brand-color: var(--WinDOORS-theme);
+    --product-tour-js-brand-color-light: rgba(var(--WinDOORS-theme-rgb), 0.43);
+    --product-tour-js-brand-color-dark: var(--WinDOORS-theme-darken);
+    --product-tour-js-bg-color: var(--WinDOORS-theme-color);
+    --product-tour-js-bg-color-dark: #F7F7F7;
+    --product-tour-js-font: var(--fontFamily);
+
+
+    .product-tour-js-title {
+        font-family: var(--fontFamilyHGroup);
+    }
+
+    .product-tour-js-single-step-inner {
+        padding: 1rem;
+        box-shadow: 0 0.1rem 0.15rem rgba(0, 0, 0, 0.035), 0 0.15rem 1rem rgba(0, 0, 0, 0.095);
+    }
+
+    .product-tour-js-progress {
+        height: 4px;
+        width: 70%;
+        margin: 10px 0 25px 50px;
+        background-color: #EFEFEF;
+        border-radius: 2px;
+    }
+
+    .product-tour-js-nav-numeric {
+        position: absolute;
+        top: 20px;
+        font-size: 12px !important;
+        font-weight: 500;
+    }
+
+    .product-tour-js-tour-nav {
+
+        .product-tour-js-next,
+        .product-tour-js-prev {
+            font-weight: normal;
+
+            &:hover,
+            &:focus {
+                color: var(--WinDOORS-theme-darken);
+                ;
+            }
+        }
+    }
+
+    .product-tour-js-title {
+        font-size: 18px;
+        line-height: 1.2;
+        margin: 10px 0 10px;
+        font-weight: 600;
+    }
+
+    .product-tour-js-image {
+        margin: 0 -1rem;
+        height: 190px;
+        display: block;
+        box-sizing: border-box;
+        width: auto;
+        margin-bottom: 20px;
+        @extend .coverimg;
+    }
+}

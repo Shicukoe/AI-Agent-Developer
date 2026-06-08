@@ -1,0 +1,110 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta http-equiv="X-UA-Compatible" content="IE=edge,chrome=1">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>jQuery Product Tour Plugin Example</title>
+<link href="https://www.jqueryscript.net/css/jquerysctipttop.css" rel="stylesheet" type="text/css">
+<link href="lib.css" rel="stylesheet" type="text/css">
+<style>
+.container { margin:150px auto; max-width:640px; text-align:center;}
+</style>
+</head>
+
+<body>
+<div id="jquery-script-menu">
+<div class="jquery-script-center">
+<ul>
+<li><a href="https://www.jqueryscript.net/other/Product-Tour-Plugin-jQuery.html">Download This Plugin</a></li>
+<li><a href="https://www.jqueryscript.net/">Back To jQueryScript.Net</a></li>
+</ul>
+<div class="jquery-script-ads"><script type="text/javascript"><!--
+google_ad_client = "ca-pub-2783044520727903";
+/* jQuery_demo */
+google_ad_slot = "2780937993";
+google_ad_width = 728;
+google_ad_height = 90;
+//-->
+</script>
+<script type="text/javascript"
+src="https://pagead2.googlesyndication.com/pagead/show_ads.js">
+</script></div>
+<div class="jquery-script-clear"></div>
+</div>
+</div>
+<div class="container">
+<h1>jQuery Product Tour Plugin Example</h1>
+<h2>Sub Title Here</h2>
+<p>Lorem ipsum dolor sit amet, consectetur adipiscing elit. Proin sed justo efficitur, lacinia risus nec, molestie quam. Etiam eget volutpat mauris. Aliquam justo nulla, rutrum quis faucibus a, tincidunt quis libero. Cras arcu urna, placerat vitae accumsan eget, dapibus sed massa. Aliquam laoreet scelerisque nisl eu suscipit. In volutpat imperdiet rhoncus. Pellentesque habitant morbi tristique senectus et netus et malesuada fames ac turpis egestas. Vestibulum in orci augue. Cras ex turpis, vestibulum sed sapien id, hendrerit mollis sem. Fusce lacinia condimentum hendrerit. Suspendisse sit amet erat vel lorem rutrum lobortis. Quisque pulvinar scelerisque ligula, non vulputate tellus blandit placerat. Vivamus maximus porta dolor, a fringilla metus lobortis et. Sed maximus, libero non laoreet accumsan, lectus enim bibendum augue, sed consectetur urna sem in nisl. Praesent eget pellentesque tortor.</p>
+</div>
+<script src="https://code.jquery.com/jquery-3.2.1.slim.min.js" integrity="sha384-KJ3o2DKtIkvYIK3UENzmM7KCkRr/rE9/Qpg6aAZGJwFDMVNA/GpGFF93hXpG5KkN" crossorigin="anonymous"></script>
+<script src="lib.js"></script>
+<script>
+$(function(){
+  
+  let tourOptions = {
+    options : {
+      
+      darkLayerPersistence : true,
+      
+    },
+    tips    : [ {
+      title       : '<span class="tour-title-icon">😁</span>Here we go!',
+      description : 'Test the Product Tour JS now, click on the `Next` link to proceed to the next tip and see it in action.',
+      image       : "https://picsum.photos/300/200/?random",
+      selector    : 'h1',
+      x           : 50,
+      y           : 100,
+      offx        : 11,
+      offy        : 0,
+      position    : 'bottom',
+      onSelected  : false
+    }, {
+      title       : '<span class="tour-title-icon">😁</span>To the left',
+      description : 'You can choose where to place the tour tip, this is a `left` tip.',
+      image       : "https://picsum.photos/300/210/?random",
+      selector    : 'h2',
+      x           : 0,
+      y           : 0,
+      offx        : -20,
+      offy        : 25,
+      position    : 'left',
+      onSelected  : false
+    }, {
+      title       : '<span class="tour-title-icon">😁</span>And now to the right',
+      description : 'This is a `right` tip, you can set it to the `top` or `bottom` of your element as well.',
+      image       : "https://picsum.photos/310/200/?random",
+      selector    : 'p',
+      x           : 30,
+      y           : 0,
+      offx        : -20,
+      offy        : 25,
+      position    : 'right',
+      onSelected  : false
+    }]
+  };
+  
+  let tour = window.ProductTourJS;
+  tour.init(tourOptions);
+  
+  tour.start();
+  
+});
+</script>
+<script type="text/javascript">
+
+  var _gaq = _gaq || [];
+  _gaq.push(['_setAccount', 'UA-36251023-1']);
+  _gaq.push(['_setDomainName', 'jqueryscript.net']);
+  _gaq.push(['_trackPageview']);
+
+  (function() {
+    var ga = document.createElement('script'); ga.type = 'text/javascript'; ga.async = true;
+    ga.src = ('https:' == document.location.protocol ? 'https://ssl' : 'http://www') + '.google-analytics.com/ga.js';
+    var s = document.getElementsByTagName('script')[0]; s.parentNode.insertBefore(ga, s);
+  })();
+
+</script>
+</body>
+</html>

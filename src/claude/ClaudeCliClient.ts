@@ -5,6 +5,14 @@ import { childLogger } from '../utils/logger.js';
 
 const log = childLogger('claude-cli-client');
 
+/** In output của Claude ra console theo thời gian thực, mỗi dòng có tiền tố nhận diện agent/task. */
+function streamToConsole(chunk: string, tag: string, isErr = false): void {
+  const out = isErr ? process.stderr : process.stdout;
+  for (const line of chunk.split('\n')) {
+    if (line.trim()) out.write(`  \x1b[2m${tag}\x1b[0m ${line}\n`);
+  }
+}
+
 function resolveClaudeCli(): string {
   if (config.CLAUDE_CLI_PATH) return config.CLAUDE_CLI_PATH;
   const candidates = [
@@ -66,6 +74,7 @@ export const ClaudeCliClient = {
     cwd?: string;
     timeoutMs?: number;
     maxTurns?: number;
+    label?: string;
   }): Promise<string> {
     const claudeExe = resolveClaudeCli();
     const timeoutMs = opts?.timeoutMs ?? 180000;
@@ -82,16 +91,23 @@ export const ClaudeCliClient = {
     }
 
     log.debug({ cwd: opts?.cwd, tools: opts?.allowedTools }, 'Spawning Claude CLI');
+    const tag = `[claude${opts?.label ? ':' + opts.label : ''}]`;
 
     try {
       // Strip ANTHROPIC_API_KEY so Claude CLI uses its own stored credentials (~/.claude)
       const { ANTHROPIC_API_KEY: _unused, ...cleanEnv } = process.env;
-      const result = await execa(claudeExe, args, {
+      const proc = execa(claudeExe, args, {
         cwd: opts?.cwd ?? config.GIT_REPO_PATH,
         timeout: timeoutMs,
         input: prompt,
         env: cleanEnv,
       });
+      // Stream chi tiết ra console theo thời gian thực (nếu bật AGENT_VERBOSE).
+      if (config.AGENT_VERBOSE) {
+        proc.stdout?.on('data', (c: Buffer) => streamToConsole(c.toString(), tag));
+        proc.stderr?.on('data', (c: Buffer) => streamToConsole(c.toString(), tag, true));
+      }
+      const result = await proc;
       return result.stdout.trim();
     } catch (err: unknown) {
       const e = err as { stdout?: string; stderr?: string; exitCode?: number; timedOut?: boolean };
@@ -107,6 +123,7 @@ export const ClaudeCliClient = {
     cwd?: string;
     timeoutMs?: number;
     maxTurns?: number;
+    label?: string;
   }): Promise<T> {
     const jsonPrompt = `${prompt}\n\n---\nCRITICAL: End your response with a single JSON code block containing ONLY the structured result. No text after the code block.\n\`\`\`json\n{...your result here...}\n\`\`\``;
     const text = await this.run(jsonPrompt, opts);

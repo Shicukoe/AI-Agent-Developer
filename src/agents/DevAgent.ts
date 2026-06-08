@@ -130,17 +130,22 @@ export const DevAgent = {
       });
 
       // Stream stdout lines for heartbeat + logging (gom lại để fallback khi exit ≠ 0)
+      const tag = `[dev:${task.card_id.slice(0, 6)}]`;
       proc.stdout?.on('data', (chunk: Buffer) => {
-        collected += chunk.toString();
-        const lines = chunk.toString().split('\n').filter(Boolean);
-        for (const line of lines) {
-          log.debug({ taskId: task.id, line: line.slice(0, 120) }, 'claude output');
+        const text = chunk.toString();
+        collected += text;
+        for (const line of text.split('\n')) {
+          if (!line.trim()) continue;
+          // AGENT_VERBOSE: in chi tiết đầy đủ ra console; ngược lại chỉ log debug (cắt gọn).
+          if (config.AGENT_VERBOSE) process.stdout.write(`  \x1b[2m${tag}\x1b[0m ${line}\n`);
+          else log.debug({ taskId: task.id, line: line.slice(0, 120) }, 'claude output');
           TaskRepository.heartbeat(task.id);
         }
       });
 
       proc.stderr?.on('data', (chunk: Buffer) => {
-        log.warn({ taskId: task.id, stderr: chunk.toString().slice(0, 200) }, 'claude stderr');
+        if (config.AGENT_VERBOSE) process.stderr.write(`  \x1b[2m${tag}!\x1b[0m ${chunk.toString().trim()}\n`);
+        else log.warn({ taskId: task.id, stderr: chunk.toString().slice(0, 200) }, 'claude stderr');
       });
 
       const result = await proc;

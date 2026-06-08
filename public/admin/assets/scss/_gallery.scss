@@ -1,0 +1,39 @@
+.sl-wrapper {
+    .sl-image {
+        border-radius: 7px;
+        box-shadow: 0 5px 20px rgba(0, 0, 0, 0.15);
+        overflow: hidden;
+
+        .sl-caption {
+            text-align: center;
+            padding: 30px 15px 15px 15px;
+            background: var(--WinDOORS-theme-rgb);
+            background: linear-gradient(180deg, rgba(0, 0, 0, 0) 0%, rgba(var(--WinDOORS-theme-rgb), 1) 100%);
+        }
+    }
+
+    .sl-navigation {
+        &>button {
+            font-size: 26px !important;
+            line-height: 20px;
+            text-align: center;
+            border-radius: 30px;
+            padding: 10px 0;
+            vertical-align: middle;
+            background-color: rgba(var(--WinDOORS-theme-rgb), 0.5);
+            color: var(--WinDOORS-theme-color);
+        }
+    }
+
+    .sl-close {
+        font-size: 2em
+    }
+
+    &+.sl-overlay {
+        opacity: 1;
+        background-color: rgba(var(--WinDOORS-theme-bg-rgb), 0.75);
+        @extend .bg-blur;
+
+    }
+
+}

@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="vi">
+
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no">
+    <title>AutoPilot Admin · Chi tiết task</title>
+    <link rel="icon" href="assets/img/favicon32.png" sizes="32x32" type="image/png">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.8.1/font/bootstrap-icons.css">
+    <link href="assets/scss/style.css" rel="stylesheet">
+</head>
+
+<body class="d-flex flex-column h-100 sidebar-pushcontent theme-blue" data-sidebarstyle="sidebar-pushcontent">
+
+    <div id="app-shell" data-title="Chi tiết task"></div>
+
+    <main class="main">
+        <div class="container-fluid mainheight">
+            <div class="row mb-3">
+                <div class="col-auto align-self-center">
+                    <a href="index.html" class="btn btn-square btn-light-theme"><i class="bi bi-arrow-left"></i></a>
+                </div>
+                <div class="col align-self-center">
+                    <h4 class="mb-0" id="taskTitle">Đang tải…</h4>
+                    <p class="text-secondary small mb-0" id="taskSub"></p>
+                </div>
+            </div>
+
+            <div id="taskContent">
+                <div class="card"><div class="card-body text-center text-secondary py-5">Đang tải chi tiết…</div></div>
+            </div>
+        </div>
+    </main>
+
+    <!-- Modal: bổ sung thông tin / lập lại kế hoạch -->
+    <div class="modal fade" id="inputModal" tabindex="-1" aria-hidden="true">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h6 class="modal-title" id="inputModalTitle">Nhập nội dung</h6>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <textarea class="form-control" id="inputModalText" rows="5" placeholder="Nhập nội dung…"></textarea>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-outline-secondary border" data-bs-dismiss="modal">Hủy</button>
+                    <button type="button" class="btn btn-theme" id="inputModalSubmit">Gửi</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="js/layout.js"></script>
+    <script src="assets/js/jquery-3.3.1.min.js"></script>
+    <script src="assets/js/popper.min.js"></script>
+    <script src="assets/vendor/bootstrap-5/dist/js/bootstrap.bundle.js"></script>
+    <script src="assets/js/main.js"></script>
+    <script src="js/api.js"></script>
+    <script src="js/ui.js"></script>
+    <script src="js/task-detail.js"></script>
+</body>
+
+</html>
