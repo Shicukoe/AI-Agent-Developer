@@ -2,6 +2,7 @@ import { existsSync } from 'fs';
 import { execa } from 'execa';
 import { config } from '../config.js';
 import { childLogger } from '../utils/logger.js';
+import { makeStreamHandler } from './claudeStream.js';
 
 const log = childLogger('claude-cli-client');
 
@@ -68,21 +69,27 @@ function extractJson(text: string): unknown {
   throw new Error(`No valid JSON in Claude CLI output:\n${text.slice(0, 500)}`);
 }
 
+export interface ClaudeCliOpts {
+  allowedTools?: string[];
+  cwd?: string;
+  timeoutMs?: number;
+  maxTurns?: number;
+  label?: string;
+  /** Gọi mỗi khi có hoạt động (dòng output) — dùng để heartbeat task. */
+  onActivity?: () => void;
+}
+
 export const ClaudeCliClient = {
-  async run(prompt: string, opts?: {
-    allowedTools?: string[];
-    cwd?: string;
-    timeoutMs?: number;
-    maxTurns?: number;
-    label?: string;
-  }): Promise<string> {
+  async run(prompt: string, opts?: ClaudeCliOpts): Promise<string> {
     const claudeExe = resolveClaudeCli();
     const timeoutMs = opts?.timeoutMs ?? 180000;
     const maxTurns = opts?.maxTurns ?? 8;
 
+    // stream-json để lấy được token usage (result event) + vẫn stream chi tiết ra console.
     const args = [
       '--print',
-      '--output-format', 'text',
+      '--output-format', 'stream-json',
+      '--verbose',
       '--max-turns', String(maxTurns),
     ];
 
@@ -92,6 +99,7 @@ export const ClaudeCliClient = {
 
     log.debug({ cwd: opts?.cwd, tools: opts?.allowedTools }, 'Spawning Claude CLI');
     const tag = `[claude${opts?.label ? ':' + opts.label : ''}]`;
+    const handler = makeStreamHandler(tag, opts?.label, opts?.onActivity);
 
     try {
       // Strip ANTHROPIC_API_KEY so Claude CLI uses its own stored credentials (~/.claude)
@@ -102,29 +110,25 @@ export const ClaudeCliClient = {
         input: prompt,
         env: cleanEnv,
       });
-      // Stream chi tiết ra console theo thời gian thực (nếu bật AGENT_VERBOSE).
-      if (config.AGENT_VERBOSE) {
-        proc.stdout?.on('data', (c: Buffer) => streamToConsole(c.toString(), tag));
-        proc.stderr?.on('data', (c: Buffer) => streamToConsole(c.toString(), tag, true));
-      }
-      const result = await proc;
-      return result.stdout.trim();
+      proc.stdout?.on('data', (c: Buffer) => handler.feed(c.toString()));
+      proc.stderr?.on('data', (c: Buffer) => {
+        if (config.AGENT_VERBOSE) streamToConsole(c.toString(), tag, true);
+      });
+      await proc;
+      handler.flush();
+      return handler.result();
     } catch (err: unknown) {
-      const e = err as { stdout?: string; stderr?: string; exitCode?: number; timedOut?: boolean };
+      handler.flush();
+      const e = err as { stderr?: string; exitCode?: number; timedOut?: boolean };
       if (e.timedOut) throw new Error(`Claude CLI timed out after ${timeoutMs}ms`);
-      // Non-zero exit can still have valid stdout
-      if (e.stdout?.trim()) return e.stdout.trim();
+      // Non-zero exit can still have produced a valid result event
+      const partial = handler.result();
+      if (partial) return partial;
       throw new Error(`Claude CLI error (exit ${e.exitCode}): ${e.stderr?.slice(0, 300) ?? 'unknown'}`);
     }
   },
 
-  async runForJson<T>(prompt: string, opts?: {
-    allowedTools?: string[];
-    cwd?: string;
-    timeoutMs?: number;
-    maxTurns?: number;
-    label?: string;
-  }): Promise<T> {
+  async runForJson<T>(prompt: string, opts?: ClaudeCliOpts): Promise<T> {
     const jsonPrompt = `${prompt}\n\n---\nCRITICAL: End your response with a single JSON code block containing ONLY the structured result. No text after the code block.\n\`\`\`json\n{...your result here...}\n\`\`\``;
     const text = await this.run(jsonPrompt, opts);
     return extractJson(text) as T;

@@ -7,9 +7,11 @@ import type { ConversationMessage } from '../state/ConversationRepository.js';
 function repoContext(): string {
   let ctx = '';
 
+  // Bọc 2 khối quy ước nặng bằng sentinel HTML-comment để LlmClient.optimizeFirstMessage CẮT
+  // CHÍNH XÁC ở các lượt sau (robust kể cả khi nội dung tự chứa heading "##" của riêng nó).
   const claudeMd = join(config.GIT_REPO_PATH, 'CLAUDE.md');
   if (existsSync(claudeMd)) {
-    ctx += `\n\n## Project Conventions (from CLAUDE.md)\n${readFileSync(claudeMd, 'utf8')}`;
+    ctx += `\n\n<!--AUTOPILOT_CONV_START-->\n## Project Conventions (from CLAUDE.md)\n${readFileSync(claudeMd, 'utf8')}\n<!--AUTOPILOT_CONV_END-->`;
   }
 
   // Context priming: always load the project overview so the agent starts with
@@ -17,9 +19,9 @@ function repoContext(): string {
   // The full docs map lives in CLAUDE.md (above) — the agent reads the rest on demand.
   const overview = join(config.GIT_REPO_PATH, 'cons_weekly_report', 'docs', '00_TONG_THE.md');
   if (existsSync(overview)) {
-    ctx += `\n\n## Project Overview (from docs/00_TONG_THE.md)\n${readFileSync(overview, 'utf8')}` +
+    ctx += `\n\n<!--AUTOPILOT_OVERVIEW_START-->\n## Project Overview (from docs/00_TONG_THE.md)\n${readFileSync(overview, 'utf8')}` +
       `\n\n> Đây chỉ là tổng quan. Trước khi sửa code, hãy đọc tài liệu màn hình/lĩnh vực liên quan` +
-      ` (xem bảng "Bản đồ tài liệu" trong CLAUDE.md) bằng tool Read.`;
+      ` (xem bảng "Bản đồ tài liệu" trong CLAUDE.md) bằng tool Read.\n<!--AUTOPILOT_OVERVIEW_END-->`;
   }
 
   return ctx;

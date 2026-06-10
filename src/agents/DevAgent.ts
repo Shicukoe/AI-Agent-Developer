@@ -8,6 +8,8 @@ import { ShellExecutor } from '../shell/ShellExecutor.js';
 import { TaskRepository } from '../state/TaskRepository.js';
 import { ConversationStore } from '../claude/ConversationStore.js';
 import { RiskGuard } from '../risk/RiskGuard.js';
+import { LlmClient } from '../claude/LlmClient.js';
+import { makeStreamHandler } from '../claude/claudeStream.js';
 import { config } from '../config.js';
 import { childLogger } from '../utils/logger.js';
 import type { Task } from '../state/TaskRepository.js';
@@ -107,69 +109,79 @@ export const DevAgent = {
     );
 
     let summary = '';
-    let collected = '';   // gom stdout streamed để dùng cả khi tiến trình exit ≠ 0
     let hasError = false;
 
-    try {
-      log.info({ claudeExe, cwd: worktreePath }, 'Spawning claude CLI');
-
-      const proc = execa(claudeExe, [
-        '--print',                                          // non-interactive, print and exit
-        '--allowedTools', 'Edit,Write,Read,Grep,Glob',     // restrict to file tools only
-        '--max-turns', String(config.CLAUDE_MAX_TURNS_PER_TASK),
-        '--output-format', 'text',
-      ], {
-        cwd: worktreePath,
-        timeout: timeoutMs,
-        input: prompt,                    // pipe prompt via stdin
-        env: (() => {
-          // Strip ANTHROPIC_API_KEY so Claude CLI uses its own stored credentials (~/.claude)
-          const { ANTHROPIC_API_KEY: _unused, ...clean } = process.env;
-          return clean;
-        })(),
-      });
-
-      // Stream stdout lines for heartbeat + logging (gom lại để fallback khi exit ≠ 0)
+    if (config.MODEL_DEV === 'claude') {
+      // stream-json để bắt token usage; parser lo việc stream console + heartbeat + gom text.
       const tag = `[dev:${task.card_id.slice(0, 6)}]`;
-      proc.stdout?.on('data', (chunk: Buffer) => {
-        const text = chunk.toString();
-        collected += text;
-        for (const line of text.split('\n')) {
-          if (!line.trim()) continue;
-          // AGENT_VERBOSE: in chi tiết đầy đủ ra console; ngược lại chỉ log debug (cắt gọn).
-          if (config.AGENT_VERBOSE) process.stdout.write(`  \x1b[2m${tag}\x1b[0m ${line}\n`);
-          else log.debug({ taskId: task.id, line: line.slice(0, 120) }, 'claude output');
-          TaskRepository.heartbeat(task.id);
-        }
-      });
+      const handler = makeStreamHandler(tag, `dev:${task.card_id.slice(0, 6)}`, () => TaskRepository.heartbeat(task.id));
+      try {
+        log.info({ claudeExe, cwd: worktreePath }, 'Spawning claude CLI');
 
-      proc.stderr?.on('data', (chunk: Buffer) => {
-        if (config.AGENT_VERBOSE) process.stderr.write(`  \x1b[2m${tag}!\x1b[0m ${chunk.toString().trim()}\n`);
-        else log.warn({ taskId: task.id, stderr: chunk.toString().slice(0, 200) }, 'claude stderr');
-      });
+        const proc = execa(claudeExe, [
+          '--print',                                          // non-interactive, print and exit
+          '--allowedTools', 'Edit,Write,Read,Grep,Glob',     // restrict to file tools only
+          '--max-turns', String(config.CLAUDE_MAX_TURNS_PER_TASK),
+          '--output-format', 'stream-json',
+          '--verbose',
+        ], {
+          cwd: worktreePath,
+          timeout: timeoutMs,
+          input: prompt,                    // pipe prompt via stdin
+          env: (() => {
+            // Strip ANTHROPIC_API_KEY so Claude CLI uses its own stored credentials (~/.claude)
+            const { ANTHROPIC_API_KEY: _unused, ...clean } = process.env;
+            return clean;
+          })(),
+        });
 
-      const result = await proc;
-      summary = (result.stdout || collected).trim();
-      TaskRepository.incrementTurns(task.id);
+        proc.stdout?.on('data', (chunk: Buffer) => handler.feed(chunk.toString()));
+        proc.stderr?.on('data', (chunk: Buffer) => {
+          if (config.AGENT_VERBOSE) process.stderr.write(`  \x1b[2m${tag}!\x1b[0m ${chunk.toString().trim()}\n`);
+          else log.warn({ taskId: task.id, stderr: chunk.toString().slice(0, 200) }, 'claude stderr');
+        });
 
-    } catch (err: unknown) {
-      const e = err as { timedOut?: boolean; killed?: boolean; exitCode?: number; stdout?: string; stderr?: string; message?: string };
+        await proc;
+        handler.flush();
+        summary = handler.result();
+        TaskRepository.incrementTurns(task.id);
 
-      if (e.timedOut || e.killed) {
-        hasError = true;
-        summary = `Timed out after ${config.MAX_TASK_PROCESSING_MINUTES} minutes`;
-      } else {
-        // Claude CLI thường exit code 1 dù ĐÃ làm việc xong — vẫn lấy output (từ error hoặc stream)
-        // để có thể commit các file đã ghi. Chỉ coi là lỗi khi không có output VÀ stderr báo error.
-        summary = ((e.stdout || collected) ?? '').trim();
-        const stderr = e.stderr ?? '';
-        if (!summary && (stderr.includes('error') || stderr.includes('Error'))) {
+      } catch (err: unknown) {
+        handler.flush();
+        const e = err as { timedOut?: boolean; killed?: boolean; exitCode?: number; stderr?: string; message?: string };
+
+        if (e.timedOut || e.killed) {
           hasError = true;
-          summary = `claude exited with code ${e.exitCode}: ${stderr.slice(0, 300)}`;
+          summary = `Timed out after ${config.MAX_TASK_PROCESSING_MINUTES} minutes`;
+        } else {
+          // Claude CLI thường exit code 1 dù ĐÃ làm việc xong — vẫn lấy text đã parse được
+          // để có thể commit các file đã ghi. Chỉ coi là lỗi khi không có output VÀ stderr báo error.
+          summary = handler.result();
+          const stderr = e.stderr ?? '';
+          if (!summary && (stderr.includes('error') || stderr.includes('Error'))) {
+            hasError = true;
+            summary = `claude exited with code ${e.exitCode}: ${stderr.slice(0, 300)}`;
+          }
         }
-      }
 
-      log.warn({ taskId: task.id, hasError, exitCode: e.exitCode, summary: summary.slice(0, 200) }, 'claude process ended');
+        log.warn({ taskId: task.id, hasError, exitCode: e.exitCode, summary: summary.slice(0, 200) }, 'claude process ended');
+      }
+    } else {
+      // Use LlmClient for Gemini/OpenAI
+      try {
+        summary = await LlmClient.run(prompt, config.MODEL_DEV, {
+          allowedTools: ['Read', 'Write', 'Edit', 'Glob', 'Grep'],
+          cwd: worktreePath,
+          maxTurns: config.CLAUDE_MAX_TURNS_PER_TASK,
+          timeoutMs: timeoutMs,
+          label: `dev:${task.card_id.slice(0, 6)}`
+        });
+        TaskRepository.incrementTurns(task.id);
+      } catch (err) {
+        hasError = true;
+        summary = (err as Error).message;
+        log.error({ taskId: task.id, err }, 'LlmClient dev error');
+      }
     }
 
     if (hasError) {

@@ -1,6 +1,6 @@
 import { writeFileSync, mkdirSync } from 'fs';
 import { join } from 'path';
-import { ClaudeCliClient } from '../claude/ClaudeCliClient.js';
+import { LlmClient } from '../claude/LlmClient.js';
 import { TrelloClient } from '../trello/TrelloClient.js';
 import { TaskRepository } from '../state/TaskRepository.js';
 import { RuleEngine } from '../rules/RuleEngine.js';
@@ -93,8 +93,9 @@ export const RefineAgent = {
     const epicId = CardMemory.parseEpicId(card.desc);
     if (epicId) memoryContext += await CardMemory.epicContext(epicId);
 
-    const refined = await ClaudeCliClient.runForJson<RefineResponse>(
+    const refined = await LlmClient.runForJson<RefineResponse>(
       buildRefinePrompt(card, memoryContext),
+      config.MODEL_REFINE,
       { allowedTools: ['Read', 'Glob', 'Grep'], cwd: config.GIT_REPO_PATH, maxTurns: 20, label: `refine:${task.card_id.slice(0, 6)}` },
     );
 

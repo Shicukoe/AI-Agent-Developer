@@ -1,5 +1,5 @@
 import { randomUUID } from 'crypto';
-import { ClaudeCliClient } from '../claude/ClaudeCliClient.js';
+import { LlmClient } from '../claude/LlmClient.js';
 import { PromptBuilder } from '../claude/PromptBuilder.js';
 import { GitClient } from '../git/GitClient.js';
 import { TrelloClient } from '../trello/TrelloClient.js';
@@ -86,8 +86,9 @@ export const ReviewAgent = {
 
     let result: ReviewResponse;
     try {
-      result = await ClaudeCliClient.runForJson<ReviewResponse>(
+      result = await LlmClient.runForJson<ReviewResponse>(
         buildReviewPrompt(diff, taskDescription, acceptanceCriteria),
+        config.MODEL_TEST,
         {
           // No file tools — diff is provided in prompt, review is independent
           maxTurns: 8,

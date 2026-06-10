@@ -1,4 +1,4 @@
-import { ClaudeCliClient } from '../../claude/ClaudeCliClient.js';
+import { LlmClient } from '../../claude/LlmClient.js';
 import { TrelloClient } from '../../trello/TrelloClient.js';
 import { TaskRepository } from '../../state/TaskRepository.js';
 import { CardMemory } from '../CardMemory.js';
@@ -73,8 +73,9 @@ export const DocCardExecutor: Executor = {
     const epicId = CardMemory.parseEpicId(card.desc);
     if (epicId) memoryContext += await CardMemory.epicContext(epicId);
 
-    const doc = await ClaudeCliClient.runForJson<DocResult>(
+    const doc = await LlmClient.runForJson<DocResult>(
       buildPrompt(card.name, card.desc, memoryContext),
+      config.MODEL_DEV,
       { allowedTools: ['Read', 'Glob', 'Grep'], cwd: config.GIT_REPO_PATH, maxTurns: 20, label: `doc:${task.card_id.slice(0, 6)}` },
     );
 

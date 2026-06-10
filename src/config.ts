@@ -40,6 +40,25 @@ const schema = z.object({
   CLAUDE_MAX_TOKENS: num(8096),
   CLAUDE_MAX_TURNS_PER_TASK: num(20),
 
+  // Model Routing
+  MODEL_REFINE: z.enum(['claude', 'gemini', 'openai']).default('claude'),
+  MODEL_PLANNING: z.enum(['claude', 'gemini', 'openai']).default('claude'),
+  MODEL_DEV: z.enum(['claude', 'gemini', 'openai']).default('claude'),
+  MODEL_TEST: z.enum(['claude', 'gemini', 'openai']).default('claude'),
+
+  // Toggle lược bỏ quy ước lặp (CLAUDE.md/overview) ở Turn 1+ để tiết kiệm token.
+  // Đặt false để TẮT (A/B test so sánh token).
+  OPTIMIZE_HISTORY: bool(true),
+
+  // Gemini API
+  GEMINI_API_KEY: z.string().optional(),
+  GEMINI_MODEL: z.string().default('gemini-2.0-flash'),
+
+  // OpenAI API
+  OPENAI_API_KEY: z.string().optional(),
+  OPENAI_MODEL: z.string().default('gpt-4o-mini'),
+  OPENAI_BASE_URL: z.string().optional(),
+
   // Queue
   QUEUE_BACKEND: z.enum(['memory', 'redis']).default('memory'),
   QUEUE_CONCURRENCY: num(3),
