@@ -96,3 +96,35 @@ export interface PlanResponse {
   risks: string[];
   estimated_complexity: number; // 1–10
 }
+
+/** Kết quả Triage (phát hiện task tí hon — rẻ, không đọc repo). */
+export interface TriageResult {
+  trivial: boolean;
+  source: 'quick_label' | 'rule' | 'llm';
+  reason: string;
+  spec?: string;   // dùng làm planContext cho Dev khi trivial
+}
+
+/** Kết quả Business Analyst: phân tích nghiệp vụ theo ý người dùng (chưa quyết kỹ thuật). */
+export interface AnalystResponse {
+  intent: string;
+  context: string;
+  requirements: string[];              // yêu cầu nghiệp vụ đã giải nghĩa
+  acceptance_criteria: string[];
+  open_questions: string[];
+  confidence: number;                  // 0–1
+  /** Khi yêu cầu lớn/đa tính năng → tách thành các đầu việc nghiệp vụ (mỗi cái → 1 card con). */
+  business_subtasks: Array<{ title: string; description: string }>;
+}
+
+/** Kết quả Technical Refiner: quyết định kỹ thuật sau khi nhận AnalystResponse. */
+export interface TechRefineResponse {
+  decision: 'trivial_solve' | 'design_solve' | 'epic_solve';
+  kind: TaskKind;                      // 'code' | 'doc_card'
+  standardized_description: string;    // markdown chuẩn hoá để ghi đè desc card
+  field_details?: FieldDetail[];
+  acceptance_criteria: string[];
+  test_cases?: Array<{ name: string; description: string; expected: string }>;
+  target_list?: string;               // (doc_card) list đích
+  reason: string;
+}

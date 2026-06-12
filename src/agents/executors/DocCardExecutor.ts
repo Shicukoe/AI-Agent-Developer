@@ -2,6 +2,7 @@ import { LlmClient } from '../../claude/LlmClient.js';
 import { TrelloClient } from '../../trello/TrelloClient.js';
 import { TaskRepository } from '../../state/TaskRepository.js';
 import { CardMemory } from '../CardMemory.js';
+import { ProjectKnowledge } from '../ProjectKnowledge.js';
 import { config } from '../../config.js';
 import { childLogger } from '../../utils/logger.js';
 import type { Task } from '../../state/TaskRepository.js';
@@ -34,12 +35,15 @@ function parseTargetList(desc: string): string {
   return m ? m[1].trim() : '';
 }
 
-function buildPrompt(cardName: string, cardDesc: string, memoryContext: string): string {
-  return `Bạn là người viết tài liệu kỹ thuật cho hệ thống báo cáo dự án xây dựng (Odoo 16 + React 18).
-
+function buildPrompt(cardName: string, cardDesc: string, memoryContext: string, cacheSummary = ''): string {
+  const cacheBlock = cacheSummary
+    ? `\n## Bản đồ dự án (tham khảo — dùng để biết đọc file nào, đừng quét lại toàn repo)\n${cacheSummary}\n`
+    : '';
+  return `Bạn là người viết tài liệu kỹ thuật cho dự án tại ${config.GIT_REPO_PATH}.
+${cacheBlock}
 ## Nhiệm vụ
 Sản phẩm của task này là **một thẻ (card) Trello chứa tài liệu** — KHÔNG phải code.
-Hãy đọc yêu cầu, dùng tool Read/Glob/Grep khám phá codebase tại ${config.GIT_REPO_PATH} khi cần,
+Hãy đọc yêu cầu, dựa vào bản đồ dự án để biết đọc file nào, dùng Read/Glob/Grep cho các file trọng điểm khi cần,
 rồi viết NỘI DUNG TÀI LIỆU hoàn chỉnh (markdown) để đặt vào mô tả của card mới.
 
 ## Yêu cầu (từ card nguồn)
@@ -73,8 +77,9 @@ export const DocCardExecutor: Executor = {
     const epicId = CardMemory.parseEpicId(card.desc);
     if (epicId) memoryContext += await CardMemory.epicContext(epicId);
 
+    const cacheSummary = ProjectKnowledge.summary(config.GIT_REPO_PATH, 3000);
     const doc = await LlmClient.runForJson<DocResult>(
-      buildPrompt(card.name, card.desc, memoryContext),
+      buildPrompt(card.name, card.desc, memoryContext, cacheSummary),
       config.MODEL_DEV,
       { allowedTools: ['Read', 'Glob', 'Grep'], cwd: config.GIT_REPO_PATH, maxTurns: 20, label: `doc:${task.card_id.slice(0, 6)}` },
     );

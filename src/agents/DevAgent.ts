@@ -11,6 +11,7 @@ import { RiskGuard } from '../risk/RiskGuard.js';
 import { LlmClient } from '../claude/LlmClient.js';
 import { makeStreamHandler } from '../claude/claudeStream.js';
 import { conventionsBlock } from '../claude/conventions.js';
+import { ProjectKnowledge } from './ProjectKnowledge.js';
 import { config } from '../config.js';
 import { childLogger } from '../utils/logger.js';
 import type { Task } from '../state/TaskRepository.js';
@@ -65,9 +66,12 @@ function writeWorktreeSettings(worktreePath: string): void {
 function buildPrompt(task: Task, planContext: string, worktreePath: string, memoryContext = ''): string {
   // Khi MODEL_DEV=claude (CLI): bỏ inject CLAUDE.md vì Claude Code tự nạp từ worktree → tiết kiệm token.
   const conventions = conventionsBlock(config.MODEL_DEV);
+  // Bản đồ dự án (cache) → biết file ở đâu, đỡ phải Glob/Grep dò dẫm. Vẫn Read file cụ thể khi cần.
+  const map = ProjectKnowledge.summary(config.GIT_REPO_PATH, 4000);
+  const projectMap = map ? `\n## Bản đồ dự án (tham khảo — đọc file cụ thể bằng Read khi cần)\n${map}\n` : '';
 
   return `You are implementing a software task. Work ONLY inside: ${worktreePath}
-${conventions}${memoryContext}
+${conventions}${projectMap}${memoryContext}
 ## Task
 ${planContext}
 

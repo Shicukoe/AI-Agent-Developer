@@ -3,6 +3,7 @@ import { join } from 'path';
 import { LlmClient } from '../claude/LlmClient.js';
 import { PromptBuilder } from '../claude/PromptBuilder.js';
 import { CardMemory } from './CardMemory.js';
+import { ProjectKnowledge } from './ProjectKnowledge.js';
 import { TrelloClient } from '../trello/TrelloClient.js';
 import { TaskRepository } from '../state/TaskRepository.js';
 import { getDb } from '../state/db.js';
@@ -21,7 +22,7 @@ function readCodeContext(repoPath: string, card: { name: string; desc: string })
   return '';
 }
 
-function buildPlannerPrompt(card: Parameters<typeof PromptBuilder.planner>[0], codeContext: string, modifyInstruction?: string, memoryContext = ''): string {
+function buildPlannerPrompt(card: Parameters<typeof PromptBuilder.planner>[0], codeContext: string, modifyInstruction?: string, memoryContext = '', cacheSummary = ''): string {
   const base = PromptBuilder.planner(card, codeContext, config.MODEL_PLANNING)
     .replace(/\nAnalyze.*$/s, '');
 
@@ -29,12 +30,16 @@ function buildPlannerPrompt(card: Parameters<typeof PromptBuilder.planner>[0], c
     ? `\n\n## Revision requested by admin\nĐiều chỉnh kế hoạch theo yêu cầu sau:\n> ${modifyInstruction}\n`
     : '';
 
+  const cacheBlock = cacheSummary
+    ? `\n## Bản đồ dự án (tham khảo — dùng để biết đọc file nào, KHÔNG chép lại)\n${cacheSummary}\n`
+    : '';
+
   return `${base}
-${memoryContext}${revision}
+${cacheBlock}${memoryContext}${revision}
 NGÔN NGỮ: Viết TẤT CẢ nội dung trả về cho người dùng — summary, description, acceptance_criteria, risks, test_cases — bằng TIẾNG VIỆT. Giữ nguyên tên file/biến/hàm/code.
 
 Analyze the requirements and explore the codebase at: ${config.GIT_REPO_PATH}
-Use Read/Glob/Grep tools to understand the existing code structure before planning.
+Dùng "Bản đồ dự án" ở trên để biết đọc file nào; chỉ Read/Glob/Grep các file trọng điểm cần cho task (tránh quét lại toàn repo).
 
 ## Required JSON response schema
 Return a JSON code block with this exact structure:
@@ -84,8 +89,9 @@ export const PlannerAgent = {
     const epicId = CardMemory.parseEpicId(card.desc);
     if (epicId) memoryContext += await CardMemory.epicContext(epicId);
 
+    const cacheSummary = ProjectKnowledge.summary(config.GIT_REPO_PATH, 4000);
     const plan = await LlmClient.runForJson<PlanResponse>(
-      buildPlannerPrompt(card, codeContext + attachmentContext, modifyInstruction, memoryContext),
+      buildPlannerPrompt(card, codeContext + attachmentContext, modifyInstruction, memoryContext, cacheSummary),
       config.MODEL_PLANNING,
       {
         allowedTools: ['Read', 'Glob', 'Grep'],

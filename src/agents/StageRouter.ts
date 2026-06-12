@@ -1,9 +1,13 @@
-import { existsSync, readFileSync } from 'fs';
+import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'fs';
+import { join } from 'path';
 import { TrelloClient } from '../trello/TrelloClient.js';
 import { WorktreeManager } from '../git/WorktreeManager.js';
 import { TaskRepository } from '../state/TaskRepository.js';
 import { RuleEngine } from '../rules/RuleEngine.js';
-import { RefineAgent } from './RefineAgent.js';
+import { ProjectKnowledge } from './ProjectKnowledge.js';
+import { TriageAgent } from './TriageAgent.js';
+import { BusinessAnalystAgent } from './BusinessAnalystAgent.js';
+import { TechnicalRefinerAgent } from './TechnicalRefinerAgent.js';
 import { PlannerAgent } from './PlannerAgent.js';
 import { DevAgent } from './DevAgent.js';
 import { taskKind } from './executors/types.js';
@@ -14,7 +18,7 @@ import { EpicManager } from './EpicManager.js';
 import { OrchestratorAgent } from './OrchestratorAgent.js';
 import type { PlanResponse } from '../claude/types.js';
 import { TaskQueue } from '../queue/TaskQueue.js';
-import { config, hasPlanApproveLabel } from '../config.js';
+import { config, hasPlanApproveLabel, hasQuickLabel } from '../config.js';
 import { childLogger } from '../utils/logger.js';
 import type { Task } from '../state/TaskRepository.js';
 import type { Stage, TrelloCard } from '../trello/types.js';
@@ -70,16 +74,61 @@ export const StageRouter = {
     });
   },
 
-  /** Refine stage: làm rõ & chuẩn hoá task sơ sài trước khi sang Planning/Dev. */
+  /** Refine stage: triage (fast-path task tí hon) → nếu không, làm rõ & chuẩn hoá. */
   async runRefine(task: Task): Promise<void> {
     log.info({ taskId: task.id }, 'runRefine');
     try {
       TaskRepository.setStatus(task.id, 'processing');
       TaskRepository.heartbeat(task.id);
-      await RefineAgent.run(task);
+
+      // Dựng/cập nhật cache hiểu dự án (không chặn refine nếu lỗi).
+      await ProjectKnowledge.ensureFresh(config.GIT_REPO_PATH).catch(err =>
+        log.warn({ taskId: task.id, err: (err as Error).message }, 'ensureFresh cache lỗi — bỏ qua'));
+
+      const card = await TrelloClient.getCard(task.card_id);
+
+      // Triage rẻ: task tí hon → fast-path thẳng Dev (bỏ Refine + Planning).
+      const triage = await TriageAgent.run(card);
+      TaskRepository.mergeMetadata(task.id, { triage: { trivial: triage.trivial, source: triage.source } });
+      if (triage.trivial) {
+        await this.fastPathToDev(task, card, triage.spec ?? card.desc ?? card.name, triage.source);
+        return;
+      }
+
+      // BA phân tích nghiệp vụ (KHÔNG tạo card con) → truyền in-flight cho Tech (kỹ thuật).
+      const analyst = await BusinessAnalystAgent.run(task);
+
+      // Thiếu thông tin → chờ admin làm rõ.
+      const needsInfo = (analyst.open_questions?.length ?? 0) > 0 || (analyst.confidence ?? 1) < RuleEngine.getConfidenceThreshold();
+      if (needsInfo) {
+        TaskRepository.setStatus(task.id, 'awaiting_clarification', { error_message: 'Waiting for clarification' });
+        const qs = (analyst.open_questions ?? []).map(q => `- ❓ ${q}`).join('\n');
+        await TrelloClient.addComment(task.card_id,
+          `📝 **[AI AGENT] Cần làm rõ thêm (nghiệp vụ)**\n**Mục tiêu:** ${analyst.intent}\n\n${qs || '- (độ tin cậy thấp)'}\n\nBổ sung vào card rồi reply \`REFINE\` (hoặc kéo lại list **Refine**).`);
+        return;
+      }
+
+      // Refine kỹ thuật + định tuyến (Dev/Planning/Epic). Nếu BA thấy nhiều đầu việc nghiệp vụ
+      // (business_subtasks), Tech sẽ tự quyết epic_solve → Epic để Planner phân rã kỹ thuật.
+      await TechnicalRefinerAgent.run(task, analyst);
     } catch (err) {
       await OrchestratorAgent.handleError(task, err);
     }
+  },
+
+  /** Task tí hon: ghi spec ngắn + pre-approve + hướng dẫn kéo sang Dev (bỏ Refine/Planning). */
+  async fastPathToDev(task: Task, card: TrelloCard, spec: string, source: string): Promise<void> {
+    const planDir = join(config.DATA_DIR, 'plans');
+    mkdirSync(planDir, { recursive: true });
+    const planPath = join(planDir, `${task.id}.md`);
+    writeFileSync(planPath, `# Task tí hon (fast-path): ${card.name}\n\n${spec}\n`, 'utf8');
+    TaskRepository.update(task.id, { plan_file_path: planPath, task_type: 'small' });
+    TaskRepository.setStatus(task.id, 'plan_approved');
+    await CardMemory.post(task.card_id, 'Triage (fast-path)',
+      `Task tí hon (nguồn: ${source}) — bỏ qua Refine & Planning, code thẳng ở Dev để đỡ tốn token.`).catch(() => {});
+    await TrelloClient.addComment(task.card_id,
+      '⚡ **[AI AGENT]** Task tí hon — **bỏ qua Refine & Planning**. Kéo card sang list **Dev** để code ngay.');
+    log.info({ taskId: task.id, source }, 'Fast-path: trivial → Dev');
   },
 
   /** Epic stage: lập kế hoạch tổng cho feature lớn; khi chốt sẽ sinh card con (xem onPlanApprove). */
@@ -183,9 +232,11 @@ export const StageRouter = {
 
     const card = await TrelloClient.getCard(task.card_id);
     const hasPlanFile = !!task.plan_file_path && existsSync(task.plan_file_path);
+    // Nhãn "quick" (làm luôn) cho phép thả thẳng card vào Dev: coi card.desc là spec (fast-path từ Dev).
+    const quick = hasQuickLabel(card.labels ?? []);
 
     // Task còn chờ làm rõ (Refine đã đặt câu hỏi) → hướng dẫn hoàn tất Refine trước, không báo "thiếu plan".
-    if (!hasPlanFile && task.status === 'awaiting_clarification') {
+    if (!hasPlanFile && task.status === 'awaiting_clarification' && !quick) {
       await TrelloClient.addComment(task.card_id,
         '⚠️ **[AI AGENT]** Task chưa được làm rõ xong (còn câu hỏi chờ trả lời). Bổ sung thông tin vào card rồi reply `REFINE` (hoặc kéo card về list **Refine**) trước khi sang Dev.');
       return;
@@ -195,10 +246,10 @@ export const StageRouter = {
     // dev/test — re-dev sau review_failed) HOẶC card đang có nhãn plan-approve (tránh đua khi gắn nhãn
     // lúc planner còn chạy). Card nhỏ qua Refine không có nhãn nên dựa vào status.
     const PAST_APPROVAL = new Set(['plan_approved', 'developing', 'dev_done', 'testing', 'review_failed']);
-    const approved = PAST_APPROVAL.has(task.status) || hasPlanApproveLabel(card.labels ?? []);
+    const approved = PAST_APPROVAL.has(task.status) || hasPlanApproveLabel(card.labels ?? []) || quick;
     if (!approved) {
       await TrelloClient.addComment(task.card_id,
-        '⚠️ **[AI AGENT]** Task chưa sẵn sàng để code. Kéo vào list **Refine** (task nhỏ) hoặc **Planning** để chuẩn bị, hoặc gắn nhãn **`plan approve`**.');
+        '⚠️ **[AI AGENT]** Task chưa sẵn sàng để code. Kéo vào list **Refine** (task nhỏ) hoặc **Planning** để chuẩn bị, hoặc gắn nhãn **`plan approve`**/**`quick`**.');
       return;
     }
 

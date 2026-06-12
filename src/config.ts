@@ -45,10 +45,21 @@ const schema = z.object({
   MODEL_PLANNING: z.enum(['claude', 'gemini', 'openai']).default('claude'),
   MODEL_DEV: z.enum(['claude', 'gemini', 'openai']).default('claude'),
   MODEL_TEST: z.enum(['claude', 'gemini', 'openai']).default('claude'),
+  // Triage (phát hiện task tí hon — rẻ, chỉ đọc text card) và Indexer (dựng cache hiểu dự án).
+  MODEL_TRIAGE: z.enum(['claude', 'gemini', 'openai']).default('claude'),
+  MODEL_INDEXER: z.enum(['claude', 'gemini', 'openai']).default('claude'),
 
   // Toggle lược bỏ quy ước lặp (CLAUDE.md/overview) ở Turn 1+ để tiết kiệm token.
   // Đặt false để TẮT (A/B test so sánh token).
   OPTIMIZE_HISTORY: bool(true),
+
+  // ── Project Knowledge cache (hiểu dự án — dựng 1 lần, agent tái dùng) ──
+  // Quá số ngày này thì refresh dù git không đổi.
+  KNOWLEDGE_TTL_DAYS: num(7),
+  // Số file thay đổi tối đa còn cập nhật incremental; vượt → rebuild toàn bộ.
+  KNOWLEDGE_INCREMENTAL_MAX_FILES: num(15),
+  // Nhãn cho task "làm luôn" — ép fast-path thẳng Dev, bỏ refine/plan.
+  TRELLO_QUICK_LABEL_NAME: z.string().default('quick'),
 
   // Gemini API
   GEMINI_API_KEY: z.string().optional(),
@@ -169,4 +180,9 @@ export function hasAiLabel(labels: Array<{ name: string }>): boolean {
 /** Card có nhãn chốt plan (plan approve) không? */
 export function hasPlanApproveLabel(labels: Array<{ name: string }>): boolean {
   return hasLabelNamed(labels, config.TRELLO_PLAN_APPROVE_LABEL_NAME);
+}
+
+/** Card có nhãn "làm luôn" (quick) — ép fast-path thẳng Dev không? */
+export function hasQuickLabel(labels: Array<{ name: string }>): boolean {
+  return hasLabelNamed(labels, config.TRELLO_QUICK_LABEL_NAME);
 }
