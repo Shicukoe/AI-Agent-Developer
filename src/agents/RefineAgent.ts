@@ -40,7 +40,7 @@ Người dùng vừa tạo một task còn SƠ SÀI, tuỳ tiện, chưa đúng 
    - "doc_card": sản phẩm là **một thẻ Trello chứa tài liệu/nội dung** (vd "tạo card hướng dẫn...", "tạo thẻ tổng hợp..."), KHÔNG đụng tới code/repo.
 8. Nếu là "doc_card" và người dùng có **chỉ định tên list đích** để đặt card kết quả (vd "tạo hướng dẫn trong list INFO"), điền tên list đó vào \`target_list\`. Không nói rõ thì để rỗng.
 
-${PromptBuilder.planner(card, '').replace(/\nAnalyze.*$/s, '')}
+${PromptBuilder.planner(card, '', config.MODEL_REFINE).replace(/\nAnalyze.*$/s, '')}
 ${memoryContext}
 NGÔN NGỮ: Viết toàn bộ nội dung trả về bằng TIẾNG VIỆT. Giữ nguyên tên file/biến/hàm/model/code.
 

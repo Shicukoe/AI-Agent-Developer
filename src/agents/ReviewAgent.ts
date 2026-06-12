@@ -23,7 +23,7 @@ function parseChildBase(metadata: string | null): string | null {
 }
 
 function buildReviewPrompt(diff: string, taskDescription: string, acceptanceCriteria: string[]): string {
-  const base = PromptBuilder.reviewer(diff, taskDescription, acceptanceCriteria)
+  const base = PromptBuilder.reviewer(diff, taskDescription, acceptanceCriteria, config.MODEL_TEST)
     .replace(/\nRespond via.*$/s, '');
 
   return `${base}

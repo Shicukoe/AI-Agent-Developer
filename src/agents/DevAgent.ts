@@ -1,4 +1,4 @@
-import { readFileSync, existsSync, mkdirSync, writeFileSync } from 'fs';
+import { existsSync, mkdirSync, writeFileSync } from 'fs';
 import { join } from 'path';
 import { execa } from 'execa';
 import { TrelloClient } from '../trello/TrelloClient.js';
@@ -10,6 +10,7 @@ import { ConversationStore } from '../claude/ConversationStore.js';
 import { RiskGuard } from '../risk/RiskGuard.js';
 import { LlmClient } from '../claude/LlmClient.js';
 import { makeStreamHandler } from '../claude/claudeStream.js';
+import { conventionsBlock } from '../claude/conventions.js';
 import { config } from '../config.js';
 import { childLogger } from '../utils/logger.js';
 import type { Task } from '../state/TaskRepository.js';
@@ -62,10 +63,8 @@ function writeWorktreeSettings(worktreePath: string): void {
 }
 
 function buildPrompt(task: Task, planContext: string, worktreePath: string, memoryContext = ''): string {
-  const claudeMdPath = join(config.GIT_REPO_PATH, 'CLAUDE.md');
-  const conventions = existsSync(claudeMdPath)
-    ? `\n## Project Conventions (CLAUDE.md)\n${readFileSync(claudeMdPath, 'utf8')}\n`
-    : '';
+  // Khi MODEL_DEV=claude (CLI): bỏ inject CLAUDE.md vì Claude Code tự nạp từ worktree → tiết kiệm token.
+  const conventions = conventionsBlock(config.MODEL_DEV);
 
   return `You are implementing a software task. Work ONLY inside: ${worktreePath}
 ${conventions}${memoryContext}

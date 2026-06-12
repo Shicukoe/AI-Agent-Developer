@@ -22,7 +22,7 @@ function readCodeContext(repoPath: string, card: { name: string; desc: string })
 }
 
 function buildPlannerPrompt(card: Parameters<typeof PromptBuilder.planner>[0], codeContext: string, modifyInstruction?: string, memoryContext = ''): string {
-  const base = PromptBuilder.planner(card, codeContext)
+  const base = PromptBuilder.planner(card, codeContext, config.MODEL_PLANNING)
     .replace(/\nAnalyze.*$/s, '');
 
   const revision = modifyInstruction
