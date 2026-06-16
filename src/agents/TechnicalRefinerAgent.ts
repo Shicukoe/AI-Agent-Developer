@@ -34,8 +34,8 @@ function deriveAnalyst(card: TrelloCard): AnalystResponse {
   };
 }
 
-function buildTechPrompt(card: TrelloCard, analyst: AnalystResponse, memory: string, cacheSummary: string): string {
-  const base = PromptBuilder.planner(card, '', config.MODEL_REFINE).replace(/\nAnalyze.*$/s, '');
+function buildTechPrompt(card: TrelloCard, analyst: AnalystResponse, memory: string, cacheSummary: string, repoPath: string): string {
+  const base = PromptBuilder.planner(card, '', config.MODEL_REFINE, repoPath).replace(/\nAnalyze.*$/s, '');
   const subs = (analyst.business_subtasks ?? []);
   return `Bạn là chuyên viên KỸ THUẬT (Technical Refiner). Đã có phân tích NGHIỆP VỤ cho task này:
 - Mục tiêu: ${analyst.intent}
@@ -71,39 +71,76 @@ NGÔN NGỮ: toàn bộ nội dung trả về bằng TIẾNG VIỆT; giữ nguy�
 \`\`\``;
 }
 
-function specFromTech(tech: TechRefineResponse, cardName: string): string {
+function fieldDetailsBlock(tech: TechRefineResponse): string {
   const fields = (tech.field_details ?? [])
     .map(f => `- \`${f.name}\` — kiểu: ${f.data_type}; hiển thị: ${f.display_label}; model: ${f.model}` +
       `${f.validation ? `; validation: ${f.validation}` : ''}${f.default ? `; default: ${f.default}` : ''}`)
     .join('\n');
-  return (
-    `# Spec: ${cardName}\n\n${tech.standardized_description}\n\n` +
-    (fields ? `## Field cần thêm/sửa\n${fields}\n\n` : '') +
-    `## Tiêu chí nghiệm thu\n${(tech.acceptance_criteria ?? []).map(c => `- ${c}`).join('\n') || '- —'}\n`
-  );
+  return fields ? `\n### Field cần thêm/sửa\n${fields}\n` : '';
+}
+
+/** Gộp tiêu chí nghiệm thu của BA (nghiệp vụ) + Tech (kỹ thuật), khử trùng lặp. */
+function mergedAcceptance(analyst: AnalystResponse, tech: TechRefineResponse): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const c of [...(analyst.acceptance_criteria ?? []), ...(tech.acceptance_criteria ?? [])]) {
+    const k = (c ?? '').trim().toLowerCase();
+    if (k && !seen.has(k)) { seen.add(k); out.push(c.trim()); }
+  }
+  return out;
+}
+
+function businessBlock(analyst: AnalystResponse): string {
+  const reqs = (analyst.requirements ?? []).map(r => `- ${r}`).join('\n');
+  return `## 🎯 Yêu cầu nghiệp vụ\n**Mục tiêu:** ${analyst.intent || '—'}\n` +
+    `${analyst.context ? `**Bối cảnh:** ${analyst.context}\n` : ''}` +
+    `${reqs ? `\n${reqs}\n` : ''}`;
+}
+
+/** Mô tả card cuối: nghiệp vụ (BA) + kỹ thuật (Tech) + nghiệm thu (gộp) + yêu cầu gốc. */
+function composeFinalDescription(analyst: AnalystResponse, tech: TechRefineResponse, original: string): string {
+  const ac = mergedAcceptance(analyst, tech).map(c => `- ${c}`).join('\n') || '- —';
+  return `${businessBlock(analyst)}
+## 🔧 Yêu cầu kỹ thuật
+${tech.standardized_description?.trim() || '(không có)'}
+${fieldDetailsBlock(tech)}
+## ✅ Tiêu chí nghiệm thu
+${ac}
+
+---
+${ORIGINAL_MARKER}
+${original || '(trống)'}`;
+}
+
+/** Spec đầy đủ ghi ra plan file cho DevAgent (gồm cả nghiệp vụ + kỹ thuật + nghiệm thu). */
+function specFull(analyst: AnalystResponse, tech: TechRefineResponse, cardName: string): string {
+  const ac = mergedAcceptance(analyst, tech).map(c => `- ${c}`).join('\n') || '- —';
+  return `# Spec: ${cardName}\n\n${businessBlock(analyst)}\n## 🔧 Yêu cầu kỹ thuật\n` +
+    `${tech.standardized_description?.trim() || '(không có)'}\n${fieldDetailsBlock(tech)}\n## ✅ Tiêu chí nghiệm thu\n${ac}\n`;
 }
 
 export const TechnicalRefinerAgent = {
   /** Nhận AnalystResponse (hoặc null cho card business) → quyết định kỹ thuật + định tuyến. */
   async run(task: Task, analyst: AnalystResponse | null): Promise<TechRefineResponse> {
     log.info({ taskId: task.id }, 'TechnicalRefiner starting');
+    const repoPath = task.repo_path ?? config.GIT_REPO_PATH;
     const card = await TrelloClient.getCard(task.card_id);
     const analystResp = analyst ?? deriveAnalyst(card);
 
     let memory = await CardMemory.loadContext(task.card_id);
     const epicId = CardMemory.parseEpicId(card.desc);
     if (epicId) memory += await CardMemory.epicContext(epicId);
-    const cacheSummary = ProjectKnowledge.summary(config.GIT_REPO_PATH, 3000);
+    const cacheSummary = ProjectKnowledge.summary(repoPath, 3000);
 
     const tech = await LlmClient.runForJson<TechRefineResponse>(
-      buildTechPrompt(card, analystResp, memory, cacheSummary),
+      buildTechPrompt(card, analystResp, memory, cacheSummary, repoPath),
       config.MODEL_REFINE,
-      { allowedTools: ['Read', 'Glob', 'Grep'], cwd: config.GIT_REPO_PATH, maxTurns: 15, label: `tech:${task.card_id.slice(0, 6)}` },
+      { allowedTools: ['Read', 'Glob', 'Grep'], cwd: repoPath, maxTurns: 15, label: `tech:${task.card_id.slice(0, 6)}` },
     );
 
-    // Ghi đè mô tả card theo spec chuẩn (giữ yêu cầu gốc).
+    // Ghi đè mô tả card: GỘP nghiệp vụ (BA) + kỹ thuật (Tech) + nghiệm thu (giữ yêu cầu gốc).
     const original = extractOriginal(card.desc ?? '');
-    const newDesc = `${tech.standardized_description?.trim() || '(không có)'}\n\n---\n${ORIGINAL_MARKER}\n${original || '(trống)'}`;
+    const newDesc = composeFinalDescription(analystResp, tech, original);
     await TrelloClient.updateCardDescription(task.card_id, newDesc).catch(err =>
       log.warn({ taskId: task.id, err }, 'Không ghi đè được mô tả card'));
 
@@ -129,7 +166,7 @@ export const TechnicalRefinerAgent = {
       const planDir = join(config.DATA_DIR, 'plans');
       mkdirSync(planDir, { recursive: true });
       const planPath = join(planDir, `${task.id}.md`);
-      writeFileSync(planPath, specFromTech(tech, card.name), 'utf8');
+      writeFileSync(planPath, specFull(analystResp, tech, card.name), 'utf8');
       TaskRepository.update(task.id, { plan_file_path: planPath });
       TaskRepository.setStatus(task.id, 'plan_approved');
       await TrelloClient.addComment(task.card_id,

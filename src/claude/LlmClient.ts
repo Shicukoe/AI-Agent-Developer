@@ -557,8 +557,25 @@ export const LlmClient = {
     maxTurns?: number;
     label?: string;
   }): Promise<T> {
-    const jsonPrompt = `${prompt}\n\n---\nCRITICAL: End your response with a single JSON code block containing ONLY the structured result. No text after the code block.\n\`\`\`json\n{...your result here...}\n\`\`\``;
-    const text = await this.run(jsonPrompt, provider, opts);
-    return extractJson(text) as T;
+    // Lần 1 đã siết để model engage + chỉ trả JSON (tránh kiểu "chào rồi dừng") → thường đậu ngay 1 lần.
+    const jsonPrompt = `${prompt}\n\n---\n` +
+      `QUAN TRỌNG: TUYỆT ĐỐI không viết lời chào/mở đầu/giải thích ("Tôi sẽ…", "Được rồi…"). ` +
+      `Nếu cần, dùng tool (Read/Glob/Grep) để kiểm tra trước, RỒI kết thúc câu trả lời bằng DUY NHẤT một ` +
+      `khối JSON hợp lệ — không có bất kỳ chữ nào trước hay sau khối đó:\n\`\`\`json\n{...kết quả...}\n\`\`\``;
+    // Lưới an toàn: nếu lần 1 vẫn thiếu JSON (CLI thi thoảng trả thiếu) → thử LẠI 1 lần với nhắc gắt hơn.
+    // Tối đa 2 lần; không lặp vô hạn để giữ tốc độ/chi phí.
+    const retryPrompt = `${prompt}\n\n---\nLƯU Ý: Trả lời trước của bạn THIẾU khối JSON nên KHÔNG dùng được. ` +
+      `KHÔNG chào hỏi/giải thích. Dùng tool nếu cần, rồi KẾT THÚC bằng DUY NHẤT một khối \`\`\`json {...} \`\`\` — không chữ nào sau đó.`;
+    let lastText = '';
+    for (let attempt = 1; attempt <= 2; attempt++) {
+      lastText = await this.run(attempt === 1 ? jsonPrompt : retryPrompt, provider, opts);
+      try {
+        return extractJson(lastText) as T;
+      } catch {
+        log.warn({ provider, label: opts?.label, attempt, preview: lastText.slice(0, 120) },
+          'runForJson: output thiếu JSON' + (attempt < 2 ? ' — thử lại lần cuối' : ' — hết lượt'));
+      }
+    }
+    throw new Error(`No valid JSON in LLM output (sau 2 lần thử):\n${lastText.slice(0, 200)}`);
   }
 };

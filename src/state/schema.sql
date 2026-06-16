@@ -22,7 +22,9 @@ CREATE TABLE IF NOT EXISTS tasks (
   updated_at        INTEGER NOT NULL,
   completed_at      INTEGER,
   heartbeat_at      INTEGER,
-  metadata          TEXT    -- JSON blob
+  metadata          TEXT,   -- JSON blob
+  repo_key          TEXT,   -- khoá repo (đa-repo, map theo board)
+  repo_path         TEXT    -- đường dẫn repo của task
 );
 
 CREATE INDEX IF NOT EXISTS idx_tasks_card_id ON tasks(card_id);
@@ -112,4 +114,16 @@ CREATE TABLE IF NOT EXISTS poller_state (
   board_id          TEXT PRIMARY KEY,
   last_seen_action  TEXT,
   last_poll_at      INTEGER
+);
+
+-- Cấu hình repo theo board (đa-repo, cấu hình qua admin). 1 board = 1 repo.
+CREATE TABLE IF NOT EXISTS repo_configs (
+  id           TEXT PRIMARY KEY,
+  board_id     TEXT NOT NULL UNIQUE,
+  name         TEXT NOT NULL,            -- tên dự án (hiển thị)
+  repo_path    TEXT NOT NULL,            -- đường dẫn tuyệt đối tới repo trên đĩa
+  base_branch  TEXT NOT NULL DEFAULT 'dev',
+  enabled      INTEGER NOT NULL DEFAULT 1,
+  created_at   INTEGER NOT NULL,
+  updated_at   INTEGER NOT NULL
 );

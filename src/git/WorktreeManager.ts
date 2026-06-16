@@ -2,6 +2,7 @@ import { mkdirSync, existsSync, rmSync } from 'fs';
 import { join } from 'path';
 import { ShellExecutor } from '../shell/ShellExecutor.js';
 import { GitOperationRepository } from '../state/GitOperationRepository.js';
+import { TaskRepository } from '../state/TaskRepository.js';
 import { config } from '../config.js';
 import { childLogger } from '../utils/logger.js';
 import { WorktreeError } from '../utils/errors.js';
@@ -15,13 +16,12 @@ function worktreePath(taskId: string): string {
 }
 
 export const WorktreeManager = {
-  async add(taskId: string, branchName: string, fromBranch: string): Promise<string> {
+  async add(taskId: string, repoPath: string, branchName: string, fromBranch: string): Promise<string> {
     const path = worktreePath(taskId);
-    const repoPath = config.GIT_REPO_PATH;
 
     if (existsSync(path)) {
       log.warn({ path }, 'Worktree path already exists, removing first');
-      await this.remove(taskId).catch(() => {});
+      await this.remove(taskId, repoPath).catch(() => {});
     }
 
     mkdirSync(config.GIT_WORKTREE_BASE, { recursive: true });
@@ -65,19 +65,20 @@ export const WorktreeManager = {
     return path;
   },
 
-  async remove(taskId: string): Promise<void> {
+  async remove(taskId: string, repoPath?: string): Promise<void> {
     const path = worktreePath(taskId);
-    const repoPath = config.GIT_REPO_PATH;
+    // Caller dead-man switch không truyền repoPath → tra lại repo của task, fallback global.
+    const rp = repoPath ?? TaskRepository.findById(taskId)?.repo_path ?? config.GIT_REPO_PATH;
 
     try {
-      await ShellExecutor.git(['worktree', 'remove', '--force', path], repoPath);
+      await ShellExecutor.git(['worktree', 'remove', '--force', path], rp);
     } catch {
       // If git worktree remove fails, forcibly delete the directory
       if (existsSync(path)) {
         rmSync(path, { recursive: true, force: true });
       }
       // Prune stale worktree refs
-      await ShellExecutor.git(['worktree', 'prune'], repoPath).catch(() => {});
+      await ShellExecutor.git(['worktree', 'prune'], rp).catch(() => {});
     }
 
     log.info({ taskId, path }, 'Worktree removed');
@@ -96,8 +97,8 @@ export const WorktreeManager = {
     return existsSync(worktreePath(taskId));
   },
 
-  async listActive(): Promise<string[]> {
-    const { stdout } = await ShellExecutor.git(['worktree', 'list', '--porcelain'], config.GIT_REPO_PATH);
+  async listActive(repoPath: string = config.GIT_REPO_PATH): Promise<string[]> {
+    const { stdout } = await ShellExecutor.git(['worktree', 'list', '--porcelain'], repoPath);
     return stdout.split('\n').filter(l => l.startsWith('worktree ')).map(l => l.replace('worktree ', '').trim());
   },
 };

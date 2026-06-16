@@ -58,6 +58,10 @@ const schema = z.object({
   KNOWLEDGE_TTL_DAYS: num(7),
   // Số file thay đổi tối đa còn cập nhật incremental; vượt → rebuild toàn bộ.
   KNOWLEDGE_INCREMENTAL_MAX_FILES: num(15),
+  // Thời gian tối đa cho 1 lần dựng cache (cold start quét cả repo lớn có thể lâu). Mặc định 10 phút.
+  KNOWLEDGE_BUILD_TIMEOUT_MS: num(600000),
+  // Số lượt tool tối đa cho indexer. Đọc CÓ CHỌN LỌC; quá nhiều lượt → ngữ cảnh phình → model timeout.
+  KNOWLEDGE_BUILD_MAX_TURNS: num(18),
   // Nhãn cho task "làm luôn" — ép fast-path thẳng Dev, bỏ refine/plan.
   TRELLO_QUICK_LABEL_NAME: z.string().default('quick'),
 

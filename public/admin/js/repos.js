@@ -1,0 +1,92 @@
+/* Trang Repos: cấu hình board → repo (CRUD). */
+(function () {
+  'use strict';
+  AdminApi.requireAuth();
+
+  var U = window.AdminUI;
+
+  async function load() {
+    var body = document.getElementById('reposBody');
+    body.innerHTML = '<tr><td colspan="6" class="text-center text-secondary py-4">Đang tải…</td></tr>';
+    try {
+      var data = await AdminApi.get('/repos');
+      var hint = document.getElementById('defaultHint');
+      if (hint) hint.textContent = 'Repo mặc định (khi chưa map board nào): ' + (data.defaultRepoPath || '—');
+      var items = data.items || [];
+      if (!items.length) {
+        body.innerHTML = '<tr><td colspan="6" class="text-center text-secondary py-4">Chưa có cấu hình nào — hệ đang dùng repo mặc định cho mọi board.</td></tr>';
+        return;
+      }
+      body.innerHTML = items.map(rowHtml).join('');
+    } catch (err) {
+      body.innerHTML = '<tr><td colspan="6" class="text-center text-danger py-4">' + U.escapeHtml(err.message) + '</td></tr>';
+    }
+  }
+
+  function rowHtml(it) {
+    var badge = it.enabled
+      ? '<span class="badge bg-success">Bật</span>'
+      : '<span class="badge bg-secondary">Tắt</span>';
+    var inp = function (f, val, style) {
+      return '<input class="form-control form-control-sm" data-f="' + f + '"' + (style ? ' style="' + style + '"' : '') + ' value="' + U.escapeHtml(val) + '">';
+    };
+    // Các ô name / repo_path / base_branch sửa trực tiếp được; bấm "Lưu" để cập nhật.
+    return '' +
+      '<tr data-id="' + it.id + '">' +
+        '<td>' + inp('name', it.name) + '</td>' +
+        '<td class="fs-12"><code>' + U.escapeHtml(it.board_id) + '</code></td>' +
+        '<td>' + inp('repo_path', it.repo_path) + '</td>' +
+        '<td>' + inp('base_branch', it.base_branch, 'max-width:130px') + '</td>' +
+        '<td>' + badge + '</td>' +
+        '<td class="text-end" style="white-space:nowrap">' +
+          '<button class="btn btn-sm btn-theme" data-act="save" data-id="' + it.id + '">Lưu</button> ' +
+          '<button class="btn btn-sm btn-outline-theme" data-act="toggle" data-id="' + it.id + '" data-en="' + (it.enabled ? 0 : 1) + '">' + (it.enabled ? 'Tắt' : 'Bật') + '</button> ' +
+          '<button class="btn btn-sm btn-outline-danger" data-act="del" data-id="' + it.id + '">Xoá</button>' +
+        '</td>' +
+      '</tr>';
+  }
+
+  async function createRepo() {
+    var val = function (id) { return document.getElementById(id).value.trim(); };
+    var body = { board_id: val('f_board'), name: val('f_name'), repo_path: val('f_path'), base_branch: val('f_base') || 'dev' };
+    if (!body.board_id || !body.name || !body.repo_path) { U.toast('Điền đủ Board ID, Tên, Repo path.', 'warning'); return; }
+    try {
+      await AdminApi.post('/repos', body);
+      U.toast('Đã lưu dự án.', 'success');
+      ['f_board', 'f_name', 'f_path'].forEach(function (id) { document.getElementById(id).value = ''; });
+      load();
+    } catch (err) { U.toast(err.message, 'danger'); }
+  }
+
+  async function onTableClick(e) {
+    var btn = e.target.closest('button[data-act]');
+    if (!btn) return;
+    var id = btn.getAttribute('data-id');
+    var act = btn.getAttribute('data-act');
+    try {
+      if (act === 'save') {
+        var tr = btn.closest('tr');
+        var body = {};
+        tr.querySelectorAll('input[data-f]').forEach(function (inp) { body[inp.getAttribute('data-f')] = inp.value.trim(); });
+        if (!body.base_branch) { U.toast('Base branch không được để trống.', 'warning'); return; }
+        await AdminApi.put('/repos/' + id, body);
+        U.toast('Đã lưu cấu hình.', 'success');
+        load();
+      } else if (act === 'toggle') {
+        await AdminApi.put('/repos/' + id, { enabled: btn.getAttribute('data-en') === '1' });
+        load();
+      } else if (act === 'del') {
+        if (!confirm('Xoá cấu hình board này?')) return;
+        await AdminApi.del('/repos/' + id);
+        load();
+      }
+    } catch (err) { U.toast(err.message, 'danger'); }
+  }
+
+  document.addEventListener('DOMContentLoaded', function () {
+    document.getElementById('createBtn').addEventListener('click', createRepo);
+    document.getElementById('refreshBtn').addEventListener('click', load);
+    document.getElementById('reposBody').addEventListener('click', onTableClick);
+    load();
+  });
+})();

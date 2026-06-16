@@ -156,15 +156,12 @@ export function executeTool(cwd: string, toolName: string, args: any): string {
         const results: string[] = [];
         for (const file of allFiles) {
           const fullPath = safeResolve(file);
-          // Check file size, skip binaries/large files
           const stat = statSync(fullPath);
           if (stat.size > 500000) continue; // skip files > 500KB
-          
           try {
             const content = readFileSync(fullPath, 'utf8');
             if (content.toLowerCase().includes(query)) {
-              const lines = content.split('\n');
-              lines.forEach((line, idx) => {
+              content.split('\n').forEach((line, idx) => {
                 if (line.toLowerCase().includes(query)) {
                   results.push(`${file}:${idx + 1}: ${line.trim().slice(0, 150)}`);
                 }

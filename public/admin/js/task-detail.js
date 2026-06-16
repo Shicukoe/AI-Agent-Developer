@@ -35,7 +35,11 @@
       '</div></div>';
 
     // Thông tin
+    var repoVal = t.repo_path
+      ? '<span class="badge bg-light-theme text-theme"><i class="bi bi-hdd-stack me-1"></i>' + U.escapeHtml(t.repo_path) + '</span>'
+      : '<span class="text-secondary">mặc định</span>';
     html += '<div class="card mb-3"><div class="card-body"><h6 class="mb-3">Thông tin</h6><div class="row">' +
+      field('Dự án / Repo', repoVal) +
       field('Loại', U.escapeHtml(t.task_type)) +
       field('Trạng thái', U.statusBadge(t.status)) +
       field('Branch', t.branch_name ? '<code>' + U.escapeHtml(t.branch_name) + '</code>' : '—') +

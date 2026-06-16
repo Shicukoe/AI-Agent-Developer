@@ -32,6 +32,8 @@ export interface Task {
   completed_at: number | null;
   heartbeat_at: number | null;
   metadata: string | null;
+  repo_key: string | null;
+  repo_path: string | null;
 }
 
 export interface CreateTaskInput {
@@ -42,6 +44,8 @@ export interface CreateTaskInput {
   task_type?: TaskType;
   parent_task_id?: string;
   metadata?: Record<string, unknown>;
+  repo_key?: string;
+  repo_path?: string;
 }
 
 export const TaskRepository = {
@@ -70,12 +74,15 @@ export const TaskRepository = {
       completed_at: null,
       heartbeat_at: now,
       metadata: input.metadata ? JSON.stringify(input.metadata) : null,
+      repo_key: input.repo_key ?? null,
+      repo_path: input.repo_path ?? null,
     };
     db.prepare(`INSERT INTO tasks VALUES (
       @id, @card_id, @board_id, @list_id, @card_name, @task_type, @status,
       @parent_task_id, @branch_name, @worktree_path, @plan_file_path,
       @actions_taken, @turns_taken, @retry_count, @rule_decision, @error_message,
-      @created_at, @updated_at, @completed_at, @heartbeat_at, @metadata
+      @created_at, @updated_at, @completed_at, @heartbeat_at, @metadata,
+      @repo_key, @repo_path
     )`).run(task);
     return task;
   },

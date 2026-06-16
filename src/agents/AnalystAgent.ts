@@ -99,7 +99,7 @@ export const AnalystAgent = {
     // Create branch
     const slug = card.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').slice(0, 40);
     const branchName = `fix/${task.card_id.slice(0, 8)}-${slug}`;
-    const worktreePath = await WorktreeManager.add(task.id, branchName, config.GIT_DEFAULT_BASE_BRANCH);
+    const worktreePath = await WorktreeManager.add(task.id, task.repo_path ?? config.GIT_REPO_PATH, branchName, config.GIT_DEFAULT_BASE_BRANCH);
     TaskRepository.update(task.id, { branch_name: branchName, worktree_path: worktreePath });
 
     // Post analysis comment

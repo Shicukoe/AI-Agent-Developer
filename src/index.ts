@@ -8,6 +8,7 @@ import { AdminServer } from './admin/AdminServer.js';
 import { TaskRepository } from './state/TaskRepository.js';
 import { WorktreeManager } from './git/WorktreeManager.js';
 import { config, stageForListName, hasAiLabel, hasPlanApproveLabel, firstInfoListName } from './config.js';
+import { RepoRegistry } from './repos/RepoRegistry.js';
 import { logger } from './utils/logger.js';
 import type { TrelloEvent, TrelloCard, TrelloList } from './trello/types.js';
 
@@ -28,6 +29,17 @@ function createInfoCardDescription(): string {
     `• Các list quan trọng: **Refine**, **Epic**, **Planning**, **Dev**, **Test**.\n` +
     `• Nếu bạn đổi tên list, cập nhật biến môi trường tương ứng trong .env.\n` +
     `• Không xoá thẻ này; nó là tài liệu setup cho board.\n\n` +
+    `---\n` +
+    `## 🧪 Luồng "bạn tự code → agent review" (Refine + Test)\n` +
+    `Dùng khi bạn (dev) tự viết code, agent chỉ đóng vai **BA** (Refine) và **tester** (Test).\n\n` +
+    `**Bước làm:**\n` +
+    `1. (Tuỳ chọn) Kéo card sang **Refine** để agent chuẩn hoá yêu cầu + tiêu chí nghiệm thu.\n` +
+    `2. Tự tạo nhánh từ base branch của repo, đặt tên \`feature/<mô-tả-ngắn>\` (vd \`feature/form-tuyen-dung\`), code xong rồi \`git push\` lên origin. **Đừng merge vào \`dev\` trước khi review.**\n` +
+    `3. Thêm vào **mô tả card** một dòng riêng: \`Branch: feature/<mô-tả-ngắn>\` (đúng tên nhánh đã push).\n` +
+    `4. Kéo card sang **Test**. Agent review **chỉ-đọc** diff của nhánh so với base (không đụng \`dev\`, không tự merge).\n` +
+    `5. **PASS** → bạn tự merge nhánh vào base. **FAIL** → sửa trên nhánh, push lại, kéo lại **Test** (hoặc reply \`RETRY\`).\n\n` +
+    `**Agent sẽ kiểm (review tĩnh):** đối chiếu từng tiêu chí nghiệm thu · bug logic / thiếu xử lý lỗi-null / edge case · nguy cơ hồi quy · bảo mật · vi phạm quy ước (CLAUDE.md).\n` +
+    `**Khi FAIL:** mỗi vấn đề ghi rõ **\`file:dòng\`** + mô tả + gợi ý sửa (xem comment review trên card) để bạn biết lỗi ở đâu.\n\n` +
     `Nếu bạn cần thay đổi yêu cầu hàng loạt, chỉnh nội dung thẻ này bằng cách sửa mô tả card.`
   );
 }
@@ -60,6 +72,12 @@ async function ensureBoardInfoCard(boardId: string): Promise<void> {
       await TrelloClient.moveCard(existingInfoCard.id, infoList.id);
       logger.info({ boardId, cardId: existingInfoCard.id, listId: infoList.id }, 'Moved existing instruction card back to Info list');
     }
+    // Đồng bộ lại nội dung hướng dẫn (để bản cập nhật mới hiện trên board cũ mà không cần xoá tay).
+    const latest = createInfoCardDescription();
+    if (existingInfoCard.desc !== latest) {
+      await TrelloClient.updateCardDescription(existingInfoCard.id, latest).catch(() => {});
+      logger.info({ boardId, cardId: existingInfoCard.id }, 'Refreshed Info instruction card content');
+    }
     return;
   }
 
@@ -72,7 +90,7 @@ async function scanExistingStageCards(): Promise<void> {
   logger.info('Scanning existing stage-list cards for AI label...');
   let found = 0;
 
-  for (const boardId of config.TRELLO_BOARD_IDS) {
+  for (const boardId of RepoRegistry.watchedBoardIds()) {
     let lists;
     try {
       lists = await TrelloClient.getLists(boardId);
@@ -201,7 +219,7 @@ async function main(): Promise<void> {
   adminServer.start();
 
   // Ensure each board has a persistent instruction card in the Info list.
-  for (const boardId of config.TRELLO_BOARD_IDS) {
+  for (const boardId of RepoRegistry.watchedBoardIds()) {
     await ensureBoardInfoCard(boardId).catch(err =>
       logger.error({ boardId, err }, 'Failed to ensure Info instruction card')
     );
@@ -223,7 +241,7 @@ async function main(): Promise<void> {
     }
   }, 5 * 60 * 1000);
 
-  logger.info({ concurrency: config.QUEUE_CONCURRENCY, boards: config.TRELLO_BOARD_IDS }, '✅ AutoPilot Agent ready');
+  logger.info({ concurrency: config.QUEUE_CONCURRENCY, boards: RepoRegistry.watchedBoardIds() }, '✅ AutoPilot Agent ready');
 
   // Graceful shutdown
   for (const sig of ['SIGINT', 'SIGTERM']) {

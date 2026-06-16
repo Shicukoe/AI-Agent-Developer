@@ -7,6 +7,7 @@ import { config } from '../config.js';
 import { childLogger } from '../utils/logger.js';
 import { requireAdminToken } from './auth.js';
 import { tasksRouter } from './routes/tasks.js';
+import { reposRouter } from './routes/repos.js';
 
 const log = childLogger('admin-server');
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -33,6 +34,7 @@ export class AdminServer {
 
     // API có bảo vệ token. Đặt TRƯỚC static để mọi /admin/api/* đều qua auth.
     this.app.use('/admin/api', requireAdminToken, tasksRouter());
+    this.app.use('/admin/api', requireAdminToken, reposRouter());
 
     // UI tĩnh từ template WinDOORS đã nhúng.
     const publicDir = resolvePublicDir();

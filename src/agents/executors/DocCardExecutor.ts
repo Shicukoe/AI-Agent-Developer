@@ -35,11 +35,11 @@ function parseTargetList(desc: string): string {
   return m ? m[1].trim() : '';
 }
 
-function buildPrompt(cardName: string, cardDesc: string, memoryContext: string, cacheSummary = ''): string {
+function buildPrompt(cardName: string, cardDesc: string, memoryContext: string, cacheSummary: string, repoPath: string): string {
   const cacheBlock = cacheSummary
     ? `\n## Bản đồ dự án (tham khảo — dùng để biết đọc file nào, đừng quét lại toàn repo)\n${cacheSummary}\n`
     : '';
-  return `Bạn là người viết tài liệu kỹ thuật cho dự án tại ${config.GIT_REPO_PATH}.
+  return `Bạn là người viết tài liệu kỹ thuật cho dự án tại ${repoPath}.
 ${cacheBlock}
 ## Nhiệm vụ
 Sản phẩm của task này là **một thẻ (card) Trello chứa tài liệu** — KHÔNG phải code.
@@ -77,11 +77,12 @@ export const DocCardExecutor: Executor = {
     const epicId = CardMemory.parseEpicId(card.desc);
     if (epicId) memoryContext += await CardMemory.epicContext(epicId);
 
-    const cacheSummary = ProjectKnowledge.summary(config.GIT_REPO_PATH, 3000);
+    const repoPath = task.repo_path ?? config.GIT_REPO_PATH;
+    const cacheSummary = ProjectKnowledge.summary(repoPath, 3000);
     const doc = await LlmClient.runForJson<DocResult>(
-      buildPrompt(card.name, card.desc, memoryContext, cacheSummary),
+      buildPrompt(card.name, card.desc, memoryContext, cacheSummary, repoPath),
       config.MODEL_DEV,
-      { allowedTools: ['Read', 'Glob', 'Grep'], cwd: config.GIT_REPO_PATH, maxTurns: 20, label: `doc:${task.card_id.slice(0, 6)}` },
+      { allowedTools: ['Read', 'Glob', 'Grep'], cwd: repoPath, maxTurns: 20, label: `doc:${task.card_id.slice(0, 6)}` },
     );
 
     const title = (doc.card_title || `Tài liệu: ${card.name}`).slice(0, 200);

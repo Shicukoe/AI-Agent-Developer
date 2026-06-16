@@ -22,8 +22,8 @@ function readCodeContext(repoPath: string, card: { name: string; desc: string })
   return '';
 }
 
-function buildPlannerPrompt(card: Parameters<typeof PromptBuilder.planner>[0], codeContext: string, modifyInstruction?: string, memoryContext = '', cacheSummary = ''): string {
-  const base = PromptBuilder.planner(card, codeContext, config.MODEL_PLANNING)
+function buildPlannerPrompt(card: Parameters<typeof PromptBuilder.planner>[0], codeContext: string, repoPath: string, modifyInstruction?: string, memoryContext = '', cacheSummary = ''): string {
+  const base = PromptBuilder.planner(card, codeContext, config.MODEL_PLANNING, repoPath)
     .replace(/\nAnalyze.*$/s, '');
 
   const revision = modifyInstruction
@@ -38,7 +38,7 @@ function buildPlannerPrompt(card: Parameters<typeof PromptBuilder.planner>[0], c
 ${cacheBlock}${memoryContext}${revision}
 NGÔN NGỮ: Viết TẤT CẢ nội dung trả về cho người dùng — summary, description, acceptance_criteria, risks, test_cases — bằng TIẾNG VIỆT. Giữ nguyên tên file/biến/hàm/code.
 
-Analyze the requirements and explore the codebase at: ${config.GIT_REPO_PATH}
+Analyze the requirements and explore the codebase at: ${repoPath}
 Dùng "Bản đồ dự án" ở trên để biết đọc file nào; chỉ Read/Glob/Grep các file trọng điểm cần cho task (tránh quét lại toàn repo).
 
 ## Required JSON response schema
@@ -74,8 +74,9 @@ export const PlannerAgent = {
   async run(task: Task, modifyInstruction?: string): Promise<PlanResponse> {
     log.info({ taskId: task.id }, 'PlannerAgent starting');
 
+    const repoPath = task.repo_path ?? config.GIT_REPO_PATH;
     const card = await TrelloClient.getCard(task.card_id);
-    const codeContext = readCodeContext(config.GIT_REPO_PATH, card);
+    const codeContext = readCodeContext(repoPath, card);
 
     // Describe attachments as text context (no vision API needed)
     let attachmentContext = '';
@@ -89,13 +90,13 @@ export const PlannerAgent = {
     const epicId = CardMemory.parseEpicId(card.desc);
     if (epicId) memoryContext += await CardMemory.epicContext(epicId);
 
-    const cacheSummary = ProjectKnowledge.summary(config.GIT_REPO_PATH, 4000);
+    const cacheSummary = ProjectKnowledge.summary(repoPath, 4000);
     const plan = await LlmClient.runForJson<PlanResponse>(
-      buildPlannerPrompt(card, codeContext + attachmentContext, modifyInstruction, memoryContext, cacheSummary),
+      buildPlannerPrompt(card, codeContext + attachmentContext, repoPath, modifyInstruction, memoryContext, cacheSummary),
       config.MODEL_PLANNING,
       {
         allowedTools: ['Read', 'Glob', 'Grep'],
-        cwd: config.GIT_REPO_PATH,
+        cwd: repoPath,
         maxTurns: config.PLANNING_MAX_TURNS,
         timeoutMs: config.PLANNING_TIMEOUT_MS,
         label: `plan:${task.card_id.slice(0, 6)}`,

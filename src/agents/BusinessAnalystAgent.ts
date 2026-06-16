@@ -11,8 +11,8 @@ import type { AnalystResponse } from '../claude/types.js';
 
 const log = childLogger('business-analyst');
 
-function buildBaPrompt(card: TrelloCard, cacheSummary: string, memory: string): string {
-  const base = PromptBuilder.planner(card, '', config.MODEL_REFINE).replace(/\nAnalyze.*$/s, '');
+function buildBaPrompt(card: TrelloCard, cacheSummary: string, memory: string, repoPath: string): string {
+  const base = PromptBuilder.planner(card, '', config.MODEL_REFINE, repoPath).replace(/\nAnalyze.*$/s, '');
   return `Bạn là BUSINESS ANALYST. Phân tích yêu cầu theo góc NGHIỆP VỤ (người dùng muốn gì, vì sao) — CHƯA đi vào kỹ thuật.
 ${cacheSummary ? `\n## Bản đồ dự án (để hiểu bối cảnh)\n${cacheSummary}\n` : ''}
 ${base}
@@ -46,14 +46,15 @@ export const BusinessAnalystAgent = {
   /** Phân tích nghiệp vụ rồi CHUYỂN cho Technical Refiner (in-flight) — KHÔNG tạo card con. */
   async run(task: Task): Promise<AnalystResponse> {
     log.info({ taskId: task.id }, 'BusinessAnalyst starting');
+    const repoPath = task.repo_path ?? config.GIT_REPO_PATH;
     const card = await TrelloClient.getCard(task.card_id);
     const memory = await CardMemory.loadContext(task.card_id);
-    const cacheSummary = ProjectKnowledge.summary(config.GIT_REPO_PATH, 3000);
+    const cacheSummary = ProjectKnowledge.summary(repoPath, 3000);
 
     const analyst = await LlmClient.runForJson<AnalystResponse>(
-      buildBaPrompt(card, cacheSummary, memory),
+      buildBaPrompt(card, cacheSummary, memory, repoPath),
       config.MODEL_REFINE,
-      { allowedTools: ['Read', 'Glob', 'Grep'], cwd: config.GIT_REPO_PATH, maxTurns: 12, label: `ba:${task.card_id.slice(0, 6)}` },
+      { allowedTools: ['Read', 'Glob', 'Grep'], cwd: repoPath, maxTurns: 12, label: `ba:${task.card_id.slice(0, 6)}` },
     );
 
     const nSub = (analyst.business_subtasks ?? []).length;

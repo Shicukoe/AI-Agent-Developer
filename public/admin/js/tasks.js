@@ -5,6 +5,13 @@
 
   var U = window.AdminUI;
   var state = { filter: 'problems', q: '' };
+  var defaultRepoPath = '';
+
+  function baseName(p) {
+    if (!p) return '';
+    var parts = String(p).replace(/[\\/]+$/, '').split(/[\\/]/);
+    return parts[parts.length - 1] || p;
+  }
 
   // Thẻ KPI: nhãn + status gộp. bg dùng biến thể light của palette template, text dùng utility Bootstrap.
   var KPIS = [
@@ -42,26 +49,36 @@
 
   async function loadTasks() {
     var body = document.getElementById('tasksBody');
-    body.innerHTML = '<tr><td colspan="6" class="text-center text-secondary py-4">Đang tải…</td></tr>';
+    body.innerHTML = '<tr><td colspan="7" class="text-center text-secondary py-4">Đang tải…</td></tr>';
     try {
       var qs = '/tasks?status=' + encodeURIComponent(state.filter) + (state.q ? '&q=' + encodeURIComponent(state.q) : '') + '&limit=200';
       var data = await AdminApi.get(qs);
+      if (data.defaultRepoPath) defaultRepoPath = data.defaultRepoPath;
       if (!data.items.length) {
-        body.innerHTML = '<tr><td colspan="6" class="text-center text-secondary py-4">Không có task nào.</td></tr>';
+        body.innerHTML = '<tr><td colspan="7" class="text-center text-secondary py-4">Không có task nào.</td></tr>';
         return;
       }
       body.innerHTML = data.items.map(rowHtml).join('');
     } catch (err) {
-      body.innerHTML = '<tr><td colspan="6" class="text-center text-danger py-4">' + U.escapeHtml(err.message) + '</td></tr>';
+      body.innerHTML = '<tr><td colspan="7" class="text-center text-danger py-4">' + U.escapeHtml(err.message) + '</td></tr>';
     }
+  }
+
+  // Nhãn dự án/repo: tên thư mục cuối của repo_path; nếu task chưa gắn repo → dùng repo mặc định.
+  function repoLabel(t) {
+    return baseName(t.repo_path) || baseName(defaultRepoPath) || t.repo_key || '—';
   }
 
   function rowHtml(t) {
     var err = t.error_message ? '<i class="bi bi-exclamation-circle-fill text-danger" title="' + U.escapeHtml(t.error_message) + '"></i>' : '';
+    var isDefault = !t.repo_path;
+    var repo = '<span class="badge ' + (isDefault ? 'bg-light-secondary text-secondary' : 'bg-light-theme text-theme') + '">' +
+      '<i class="bi bi-hdd-stack me-1"></i>' + U.escapeHtml(repoLabel(t)) + (isDefault ? ' (mặc định)' : '') + '</span>';
     return '' +
-      '<tr style="cursor:pointer" onclick="location.href=\'task.html?id=' + encodeURIComponent(t.id) + '\'">' +
-        '<td><div class="fw-bold text-truncate" style="max-width:320px">' + U.escapeHtml(t.card_name) + '</div>' +
+      '<tr style="cursor:pointer" data-id="' + U.escapeHtml(t.id) + '">' +
+        '<td><div class="fw-bold text-truncate" style="max-width:300px">' + U.escapeHtml(t.card_name) + '</div>' +
           '<div class="text-secondary fs-12">' + U.escapeHtml(t.card_id) + '</div></td>' +
+        '<td>' + repo + '</td>' +
         '<td><span class="badge bg-secondary">' + U.escapeHtml(t.task_type) + '</span></td>' +
         '<td>' + U.statusBadge(t.status) + '</td>' +
         '<td class="fs-12">' + (t.branch_name ? '<code>' + U.escapeHtml(t.branch_name) + '</code>' : '—') + '</td>' +
@@ -90,6 +107,11 @@
       timer = setTimeout(function () { state.q = v; loadTasks(); }, 300);
     });
     document.getElementById('refreshBtn').addEventListener('click', refresh);
+    // Click 1 hàng → mở chi tiết task (uỷ quyền, không phụ thuộc onclick inline).
+    document.getElementById('tasksBody').addEventListener('click', function (e) {
+      var tr = e.target.closest('tr[data-id]');
+      if (tr) location.href = 'task.html?id=' + encodeURIComponent(tr.getAttribute('data-id'));
+    });
     refresh();
   });
 })();

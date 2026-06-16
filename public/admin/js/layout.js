@@ -5,6 +5,7 @@
 
   var NAV = [
     { href: 'index.html', icon: 'bi-kanban', label: 'Tasks', enabled: true },
+    { href: 'repos.html', icon: 'bi-hdd-stack', label: 'Repos / Dự án', enabled: true },
     { href: 'skills.html', icon: 'bi-stars', label: 'Skills / Prompts', enabled: false },
     { href: 'agents.html', icon: 'bi-robot', label: 'Agents', enabled: false },
     { href: 'mcp.html', icon: 'bi-plugin', label: 'MCP', enabled: false },
@@ -42,11 +43,10 @@
           '<a class="navbar-brand ms-2" href="index.html"><div class="row"><div class="col-auto"><img src="assets/img/favicon48.png" class="mx-100" alt="" /></div>' +
           '<div class="col ps-0 align-self-center d-none d-sm-block"><h5 class="fw-normal text-dark mb-0">AutoPilot</h5><p class="small text-secondary">Admin</p></div></div></a>' +
         '</div>' +
-        '<div class="ms-auto"><div class="row"><div class="col-auto align-self-center">' +
-          '<h6 class="mb-0 d-none d-md-block" id="pageTitle">' + (title || '') + '</h6>' +
-        '</div><div class="col-auto">' +
-          '<button type="button" class="btn btn-square btn-link" id="adminLogout" title="Đăng xuất"><i class="bi bi-box-arrow-right"></i></button>' +
-        '</div></div></div>' +
+        '<div class="ms-auto d-flex align-items-center">' +
+          '<h6 class="mb-0 me-2 d-none d-md-block" id="pageTitle">' + (title || '') + '</h6>' +
+          '<button type="button" class="btn btn-square btn-link p-0" id="adminLogout" title="Đăng xuất"><i class="bi bi-box-arrow-right fs-5"></i></button>' +
+        '</div>' +
       '</div></nav></header>' +
       '<div class="sidebar-wrap"><div class="sidebar"><div class="container">' +
         '<div class="row mb-4"><div class="col align-self-center"><h6>Điều hướng</h6></div></div>' +
@@ -54,13 +54,29 @@
       '</div></div></div>';
   }
 
+  // CSS chỉnh tinh: căn giữa dọc thanh header + chừa khoảng đệm trên cho .main (tránh nút sát header).
+  function injectFixes() {
+    if (document.getElementById('ap-layout-fixes')) return;
+    var st = document.createElement('style');
+    st.id = 'ap-layout-fixes';
+    st.textContent =
+      '.header .navbar > .container-fluid{align-items:center;}' +
+      '.header .navbar .ms-auto{min-height:40px;}' +
+      'main.main{margin-top:.5rem;}';
+    document.head.appendChild(st);
+  }
+
   function mount() {
+    injectFixes();
     var holder = document.getElementById('app-shell');
     var title = (holder && holder.getAttribute('data-title')) || document.title;
     var div = document.createElement('div');
     div.innerHTML = shellHtml(title);
-    // Chèn shell vào đầu body để header/sidebar nằm trước phần .main.
-    while (div.firstChild) document.body.insertBefore(div.firstChild, document.body.firstChild);
+    // Chèn shell GIỮ ĐÚNG THỨ TỰ (loader, coverimg, header, sidebar-wrap) ngay trước .main.
+    // Phải chèn trước node cố định (holder), KHÔNG dùng body.firstChild (sẽ đảo ngược thứ tự →
+    // sidebar-wrap không còn liền .main → CSS .sidebar-wrap + .main mất tác dụng → đè nội dung).
+    var ref = holder || document.body.firstChild;
+    while (div.firstChild) document.body.insertBefore(div.firstChild, ref);
     if (holder) holder.parentNode.removeChild(holder);
   }
 

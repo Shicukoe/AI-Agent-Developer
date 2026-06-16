@@ -2,6 +2,7 @@ import { writeFileSync, mkdirSync, existsSync } from 'fs';
 import { join } from 'path';
 import { TrelloClient } from '../trello/TrelloClient.js';
 import { TaskRepository } from '../state/TaskRepository.js';
+import { RepoConfigRepository } from '../state/RepoConfigRepository.js';
 import { WorktreeManager } from '../git/WorktreeManager.js';
 import { GitClient } from '../git/GitClient.js';
 import { CardMemory } from './CardMemory.js';
@@ -62,6 +63,8 @@ export const EpicManager = {
   async createChildren(epicTask: Task, plan: PlanResponse): Promise<number> {
     const boardId = epicTask.board_id;
     const epicShort = epicTask.card_id.slice(0, 6);
+    const repoPath = epicTask.repo_path ?? config.GIT_REPO_PATH;
+    const repoBase = RepoConfigRepository.getById(epicTask.repo_key ?? '')?.base_branch ?? config.GIT_DEFAULT_BASE_BRANCH;
 
     const lists = await TrelloClient.getLists(boardId);
     const planningName = firstPlanningListName().toUpperCase();
@@ -75,7 +78,7 @@ export const EpicManager = {
     // Integration branch + worktree cho epic (tách từ base branch). Card con merge dần vào đây.
     const integrationBranch = `epic/${epicShort}`;
     const integrationWorktree = await WorktreeManager.add(
-      `epic-${epicShort}`, integrationBranch, config.GIT_DEFAULT_BASE_BRANCH,
+      `epic-${epicShort}`, repoPath, integrationBranch, repoBase,
     );
     TaskRepository.mergeMetadata(epicTask.id, {
       integration_branch: integrationBranch,
@@ -126,6 +129,8 @@ export const EpicManager = {
         task_type: 'small',
         parent_task_id: epicTask.id,
         metadata: meta as unknown as Record<string, unknown>,
+        repo_key: epicTask.repo_key ?? undefined,
+        repo_path: epicTask.repo_path ?? undefined,
       });
       TaskRepository.update(childTask.id, { status: 'plan_approved', plan_file_path: planPath });
 
@@ -156,9 +161,11 @@ export const EpicManager = {
     const branch = meta?.integration_branch;
     if (!branch) return null;
     const key = `epic-${epicTask.card_id.slice(0, 6)}`;
+    const repoPath = epicTask.repo_path ?? config.GIT_REPO_PATH;
+    const repoBase = RepoConfigRepository.getById(epicTask.repo_key ?? '')?.base_branch ?? config.GIT_DEFAULT_BASE_BRANCH;
     let worktree = meta?.integration_worktree;
     if (!worktree || !existsSync(worktree)) {
-      worktree = await WorktreeManager.add(key, branch, config.GIT_DEFAULT_BASE_BRANCH);
+      worktree = await WorktreeManager.add(key, repoPath, branch, repoBase);
       TaskRepository.mergeMetadata(epicTask.id, { integration_worktree: worktree });
     }
     return { branch, worktree };
@@ -214,13 +221,13 @@ export const EpicManager = {
           (pushed
             ? 'Branch đã được **push lên remote** — '
             : 'Branch hiện chỉ ở **local** (push thất bại/không có quyền) — ') +
-          `sẵn sàng để bạn merge vào \`${config.GIT_DEFAULT_BASE_BRANCH}\`.`).catch(() => {});
+          `sẵn sàng để bạn merge vào \`${RepoConfigRepository.getById(epicTask.repo_key ?? '')?.base_branch ?? config.GIT_DEFAULT_BASE_BRANCH}\`.`).catch(() => {});
       } else {
         // Epic cũ: không có integration branch → code nằm rải ở từng branch card con.
         const branches = siblings.map(s => s.branch_name).filter(Boolean);
         await TrelloClient.addComment(epicTask.card_id,
           `🎉 **[AI AGENT]** Tất cả **${siblings.length}** card con đã hoàn thành. Epic này **không dùng integration branch** ` +
-          `(tạo trước cơ chế mới) nên KHÔNG có branch \`epic/...\`. Hãy merge thủ công các branch card con vào \`${config.GIT_DEFAULT_BASE_BRANCH}\`:\n` +
+          `(tạo trước cơ chế mới) nên KHÔNG có branch \`epic/...\`. Hãy merge thủ công các branch card con vào \`${RepoConfigRepository.getById(epicTask.repo_key ?? '')?.base_branch ?? config.GIT_DEFAULT_BASE_BRANCH}\`:\n` +
           branches.map(b => `- \`${b}\``).join('\n')).catch(() => {});
       }
       log.info({ epicCardId: epicTask.card_id, integration: !!branch }, 'Epic complete');

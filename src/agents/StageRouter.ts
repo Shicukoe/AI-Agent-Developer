@@ -3,8 +3,10 @@ import { join } from 'path';
 import { TrelloClient } from '../trello/TrelloClient.js';
 import { WorktreeManager } from '../git/WorktreeManager.js';
 import { TaskRepository } from '../state/TaskRepository.js';
+import { RepoConfigRepository } from '../state/RepoConfigRepository.js';
 import { RuleEngine } from '../rules/RuleEngine.js';
 import { ProjectKnowledge } from './ProjectKnowledge.js';
+import { RepoRegistry, type ResolvedRepo } from '../repos/RepoRegistry.js';
 import { TriageAgent } from './TriageAgent.js';
 import { BusinessAnalystAgent } from './BusinessAnalystAgent.js';
 import { TechnicalRefinerAgent } from './TechnicalRefinerAgent.js';
@@ -39,10 +41,13 @@ const STAGE_LABEL: Record<Stage, string> = {
 };
 
 /** Find the single Task for a card, or create one. One Task per card across all stages. */
-function findOrCreateTask(card: TrelloCard, listId: string): Task {
+function findOrCreateTask(card: TrelloCard, listId: string, repo: ResolvedRepo): Task {
   const existing = TaskRepository.findByCardId(card.id);
   if (existing) {
-    TaskRepository.update(existing.id, { list_id: listId, card_name: card.name });
+    TaskRepository.update(existing.id, {
+      list_id: listId, card_name: card.name,
+      repo_key: repo.repoKey, repo_path: repo.repoPath,
+    });
     return TaskRepository.findById(existing.id)!;
   }
   return TaskRepository.create({
@@ -50,20 +55,36 @@ function findOrCreateTask(card: TrelloCard, listId: string): Task {
     board_id: card.idBoard,
     list_id: listId,
     card_name: card.name,
+    repo_key: repo.repoKey,
+    repo_path: repo.repoPath,
   });
 }
 
 export const StageRouter = {
   /** Entry point when a card enters a stage list (caller has already verified the AI label). */
   dispatch(stage: Stage, card: TrelloCard, listId: string): void {
-    const task = findOrCreateTask(card, listId);
-    log.info({ taskId: task.id, cardId: card.id, stage }, 'Dispatching stage');
+    // Xác định repo của card theo BOARD. Board chưa cấu hình (khi đã có cấu hình khác) → nhắc admin, KHÔNG tạo Task.
+    const repo = RepoRegistry.resolveForBoard(card.idBoard);
+    if ('error' in repo) {
+      log.warn({ cardId: card.id, boardId: card.idBoard, stage }, 'Repo chưa xác định cho board — chờ cấu hình admin');
+      TrelloClient.addComment(card.id, `🗂️ **[AI AGENT]** ${repo.error}`).catch(() => {});
+      return;
+    }
+
+    const isNew = !TaskRepository.findByCardId(card.id);
+    const task = findOrCreateTask(card, listId, repo);
+    log.info({ taskId: task.id, cardId: card.id, stage, repo: repo.name }, 'Dispatching stage');
 
     TaskQueue.run(task.id, async () => {
       const fresh = TaskRepository.findById(task.id)!;
       // Báo cho người dùng biết agent đã nhận task và bắt đầu xử lý (job vừa rời hàng đợi).
       await TrelloClient.addComment(fresh.card_id,
         `🤖 **[AI AGENT]** Đã nhận task, bắt đầu xử lý: **${STAGE_LABEL[stage]}**…`).catch(() => {});
+      // Lần đầu nhận card: comment xác nhận repo + base branch để người dùng biết card thuộc dự án nào.
+      if (isNew) {
+        await TrelloClient.addComment(fresh.card_id,
+          `📦 **[AI AGENT]** Dự án/repo: **${repo.name}** (\`${repo.repoPath}\`) · base branch \`${repo.baseBranch}\``).catch(() => {});
+      }
       switch (stage) {
         case 'refine': await this.runRefine(fresh); break;
         case 'epic': await this.runEpicPlanning(fresh); break;
@@ -81,14 +102,17 @@ export const StageRouter = {
       TaskRepository.setStatus(task.id, 'processing');
       TaskRepository.heartbeat(task.id);
 
-      // Dựng/cập nhật cache hiểu dự án (không chặn refine nếu lỗi).
-      await ProjectKnowledge.ensureFresh(config.GIT_REPO_PATH).catch(err =>
-        log.warn({ taskId: task.id, err: (err as Error).message }, 'ensureFresh cache lỗi — bỏ qua'));
+      const repoPath = task.repo_path ?? config.GIT_REPO_PATH;
+      // Dựng/cập nhật cache hiểu dự án CHẠY NỀN — KHÔNG chặn refine. Cold-start quét repo lớn rất nặng
+      // (có thể timeout); để nền thì refine đi tiếp ngay, agent đọc repo trực tiếp khi chưa có cache,
+      // cache sẵn sàng cho các task sau.
+      void ProjectKnowledge.ensureFresh(repoPath).catch(err =>
+        log.warn({ taskId: task.id, err: (err as Error).message }, 'ensureFresh cache nền lỗi — bỏ qua'));
 
       const card = await TrelloClient.getCard(task.card_id);
 
       // Triage rẻ: task tí hon → fast-path thẳng Dev (bỏ Refine + Planning).
-      const triage = await TriageAgent.run(card);
+      const triage = await TriageAgent.run(card, repoPath);
       TaskRepository.mergeMetadata(task.id, { triage: { trivial: triage.trivial, source: triage.source } });
       if (triage.trivial) {
         await this.fastPathToDev(task, card, triage.spec ?? card.desc ?? card.name, triage.source);
@@ -277,8 +301,9 @@ export const StageRouter = {
       return;
     }
 
-    // Epic: cổng tuần tự theo sequence + branch từ integration branch (để thấy code card con trước).
-    let baseBranch = config.GIT_DEFAULT_BASE_BRANCH;
+    // Base branch theo repo của task (đa-repo); epic child sẽ override bằng integration branch bên dưới.
+    const repoPath = task.repo_path ?? config.GIT_REPO_PATH;
+    let baseBranch = RepoConfigRepository.getById(task.repo_key ?? '')?.base_branch ?? config.GIT_DEFAULT_BASE_BRANCH;
     const childMeta = EpicManager.getChildMeta(task);
     if (childMeta) {
       const epicTask = TaskRepository.findByCardId(childMeta.epic_card_id);
@@ -308,7 +333,7 @@ export const StageRouter = {
       let worktreePath = task.worktree_path ?? undefined;
       if (!worktreePath || !WorktreeManager.exists(task.id)) {
         branchName = `feature/${task.card_id.slice(0, 8)}-${slugify(card.name)}`;
-        worktreePath = await WorktreeManager.add(task.id, branchName, baseBranch);
+        worktreePath = await WorktreeManager.add(task.id, repoPath, branchName, baseBranch);
         TaskRepository.update(task.id, { branch_name: branchName, worktree_path: worktreePath });
       }
 
@@ -344,9 +369,9 @@ export const StageRouter = {
   async runTest(task: Task): Promise<void> {
     log.info({ taskId: task.id }, 'runTest');
 
+    // Không có worktree của agent (luồng người tự code) → review nhánh chỉ-định trong card (read-only).
     if (!task.worktree_path || !WorktreeManager.exists(task.id)) {
-      await TrelloClient.addComment(task.card_id,
-        '⚠️ **[AI AGENT]** Chưa có code để review. Kéo card qua list **Dev** trước.');
+      await this.runBranchReview(task);
       return;
     }
 
@@ -374,9 +399,10 @@ export const StageRouter = {
         }
 
         TaskRepository.setStatus(task.id, 'completed');
+        const repoBase = RepoConfigRepository.getById(fresh.repo_key ?? '')?.base_branch ?? config.GIT_DEFAULT_BASE_BRANCH;
         const mergedNote = childMeta?.base_branch
           ? ` Đã merge vào integration branch \`${childMeta.base_branch}\`.`
-          : ` Branch \`${fresh.branch_name}\` sẵn sàng merge vào \`${config.GIT_DEFAULT_BASE_BRANCH}\`.`;
+          : ` Branch \`${fresh.branch_name}\` sẵn sàng merge vào \`${repoBase}\`.`;
         await TrelloClient.addComment(task.card_id, `✅ **[AI AGENT]** Review PASS.${mergedNote}`);
         // Card con epic: tick tiến độ + nhắc card con kế tiếp (hoặc báo epic hoàn tất).
         if (childMeta) {
@@ -398,4 +424,59 @@ export const StageRouter = {
       await OrchestratorAgent.handleError(task, err);
     }
   },
+
+  /**
+   * Test cho luồng "agent làm tester": người tự code + push 1 nhánh, ghi `Branch: <tên>` trong mô tả
+   * card, kéo sang Test → agent review diff `base...branch` (READ-ONLY, không đụng base). PASS thì
+   * người tự merge. Không tạo worktree, không commit, không merge.
+   */
+  async runBranchReview(task: Task): Promise<void> {
+    try {
+      const card = await TrelloClient.getCard(task.card_id);
+      const repoPath = task.repo_path ?? config.GIT_REPO_PATH;
+      const baseBranch = RepoConfigRepository.getById(task.repo_key ?? '')?.base_branch ?? config.GIT_DEFAULT_BASE_BRANCH;
+      const branch = parseReviewBranch(card.desc);
+      if (!branch) {
+        await TrelloClient.addComment(task.card_id,
+          '⚠️ **[AI AGENT] Chưa rõ nhánh cần review.**\n\n' +
+          '**Cách dùng (bạn tự code, agent làm tester):**\n' +
+          `1. Tạo nhánh từ \`${baseBranch}\`, đặt tên \`feature/<mô-tả-ngắn>\`, code xong rồi \`git push\` (đừng merge vào \`${baseBranch}\` trước).\n` +
+          '2. Thêm 1 dòng vào **mô tả card**: `Branch: feature/<mô-tả-ngắn>` (đúng tên nhánh đã push).\n' +
+          '3. Kéo lại list **Test**.\n\n' +
+          `Agent sẽ review **chỉ-đọc** diff \`${baseBranch}...nhánh\` (không đụng \`${baseBranch}\`, không tự merge). ` +
+          'Hoặc dùng luồng **Dev** nếu muốn agent tự code.');
+        return;
+      }
+
+      TaskRepository.setStatus(task.id, 'testing');
+      TaskRepository.heartbeat(task.id);
+      await TrelloClient.addComment(task.card_id,
+        `🧪 **[AI AGENT]** Đang review (chỉ-đọc) nhánh \`${branch}\` so với \`${baseBranch}\`.\n` +
+        'Sẽ kiểm: ✅ tiêu chí nghiệm thu · 🐞 bug logic / xử lý lỗi-null / edge case · ♻️ nguy cơ hồi quy · 🔒 bảo mật · 📐 quy ước (CLAUDE.md).\n' +
+        'Nếu FAIL, mỗi lỗi sẽ kèm **`file:dòng`** + gợi ý sửa.').catch(() => {});
+
+      const fresh = TaskRepository.findById(task.id)!;
+      const result = await ReviewAgent.reviewBranch(fresh, repoPath, branch, baseBranch);
+
+      if (result.verdict === 'PASS') {
+        TaskRepository.setStatus(task.id, 'completed');
+        await TrelloClient.addComment(task.card_id,
+          `✅ **[AI AGENT]** Review PASS nhánh \`${branch}\` (so với \`${baseBranch}\`). ` +
+          `Bạn có thể **merge \`${branch}\` vào \`${baseBranch}\`** (agent không tự merge).`);
+      } else {
+        TaskRepository.setStatus(task.id, 'review_failed');
+        await TrelloClient.addComment(task.card_id,
+          `❌ **[AI AGENT]** Review FAIL nhánh \`${branch}\` — xem chi tiết vấn đề ở comment review phía trên. ` +
+          `Sửa trên nhánh, \`push\` lại rồi kéo lại **Test** (hoặc reply \`RETRY\`).`);
+      }
+    } catch (err) {
+      await OrchestratorAgent.handleError(task, err);
+    }
+  },
 };
+
+/** Đọc `Branch: <tên-nhánh>` từ mô tả card (1 dòng riêng). Trả null nếu không có. */
+function parseReviewBranch(desc: string | null | undefined): string | null {
+  const m = (desc ?? '').match(/(?:^|\n)\s*Branch:\s*(\S+)/i);
+  return m ? m[1].trim() : null;
+}

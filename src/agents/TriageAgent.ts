@@ -39,7 +39,7 @@ function buildCardText(card: TrelloCard): string {
 
 export const TriageAgent = {
   /** Phát hiện task tí hon RẺ (không quét repo). Trả TriageResult. */
-  async run(card: TrelloCard): Promise<TriageResult> {
+  async run(card: TrelloCard, repoPath: string = config.GIT_REPO_PATH): Promise<TriageResult> {
     // 1) Nhãn "quick" → ép trivial, khỏi LLM.
     if (hasQuickLabel(card.labels ?? [])) {
       return { trivial: true, source: 'quick_label', reason: 'Nhãn quick (làm luôn)', spec: card.desc || card.name };
@@ -58,7 +58,7 @@ export const TriageAgent = {
 
     // 4) Mơ hồ → 1 LLM call RẺ (chỉ text card + tóm tắt cache, KHÔNG đọc repo).
     try {
-      const summary = ProjectKnowledge.summary(config.GIT_REPO_PATH, 1500);
+      const summary = ProjectKnowledge.summary(repoPath, 1500);
       const prompt =
         `${buildCardText(card)}\n\n` +
         (summary ? `Bối cảnh dự án (tóm tắt):\n${summary}\n\n` : '') +

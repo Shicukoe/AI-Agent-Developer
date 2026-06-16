@@ -4,6 +4,7 @@ import { PromptBuilder } from '../claude/PromptBuilder.js';
 import { GitClient } from '../git/GitClient.js';
 import { TrelloClient } from '../trello/TrelloClient.js';
 import { getDb } from '../state/db.js';
+import { RepoConfigRepository } from '../state/RepoConfigRepository.js';
 import { config } from '../config.js';
 import { childLogger } from '../utils/logger.js';
 import type { Task } from '../state/TaskRepository.js';
@@ -27,6 +28,14 @@ function buildReviewPrompt(diff: string, taskDescription: string, acceptanceCrit
     .replace(/\nRespond via.*$/s, '');
 
   return `${base}
+
+## Vai trò: TESTER / QA độc lập (review nghiêm khắc)
+Bạn thay cho một tester thật. Hãy soi kỹ — KHÔNG nể nang:
+- Đối chiếu TỪNG tiêu chí nghiệm thu ở trên: tiêu chí nào diff CHƯA đáp ứng → liệt kê là issue \`error\`.
+- Tìm bug logic, thiếu xử lý lỗi/null, off-by-one, rò rỉ, hardcode, thiếu validate input.
+- Edge case & hồi quy: thay đổi này có làm hỏng chức năng cũ / phá vỡ giao diện/dữ liệu không?
+- Bảo mật rõ ràng (lộ secret, injection) và vi phạm convention dự án (CLAUDE.md).
+- Chỉ \`PASS\` khi đáp ứng ĐỦ tiêu chí nghiệm thu và không còn issue mức \`error\`. Còn nghi ngờ → \`FAIL\` kèm lý do cụ thể (file:line) để người sửa.
 
 NGÔN NGỮ: Viết "summary", "description", "suggestion" bằng TIẾNG VIỆT. Giữ nguyên tên file/biến/hàm/code.
 
@@ -53,13 +62,13 @@ verdict MUST be "PASS" or "FAIL". Empty issues array means no problems found.`;
 }
 
 export const ReviewAgent = {
+  /** Review worktree do chính agent tạo (luồng Dev → Test): diff worktree vs base. */
   async review(task: Task, acceptanceCriteria: string[], attempt: number = 1): Promise<ReviewResponse> {
-    log.info({ taskId: task.id, branch: task.branch_name, attempt }, 'ReviewAgent starting');
+    log.info({ taskId: task.id, branch: task.branch_name, attempt }, 'ReviewAgent starting (worktree)');
 
     const worktreePath = task.worktree_path!;
-
-    // Base để so diff: card con epic review vs integration branch (epic/<short>); còn lại vs base mặc định.
-    let baseBranch = config.GIT_DEFAULT_BASE_BRANCH;
+    // Base để so diff: card con epic review vs integration branch (epic/<short>); còn lại vs base của repo.
+    let baseBranch = RepoConfigRepository.getById(task.repo_key ?? '')?.base_branch ?? config.GIT_DEFAULT_BASE_BRANCH;
     const childMeta = parseChildBase(task.metadata);
     if (childMeta) baseBranch = childMeta;
 
@@ -69,15 +78,37 @@ export const ReviewAgent = {
     } catch {
       diff = await GitClient.getDiff(worktreePath, 'HEAD~1').catch(() => '(no diff available)');
     }
+    return this.runReviewOnDiff(task, diff, acceptanceCriteria, attempt);
+  },
 
+  /**
+   * Review nhánh do NGƯỜI tự code (không qua Dev của agent): so diff `base...branch` trong repo,
+   * READ-ONLY (chỉ fetch + diff, KHÔNG đụng base branch). Dùng cho luồng "agent làm tester".
+   */
+  async reviewBranch(task: Task, repoPath: string, branch: string, baseBranch: string, acceptanceCriteria: string[] = [], attempt: number = 1): Promise<ReviewResponse> {
+    log.info({ taskId: task.id, branch, baseBranch }, 'ReviewAgent starting (branch mode)');
+    // Cập nhật ref (read-only). Lỗi (không remote/quyền) → thử ref local bên dưới.
+    await GitClient.fetch(repoPath, [baseBranch, branch]).catch(() => {});
+    let diff = '';
+    try {
+      diff = await GitClient.getDiff(repoPath, `origin/${baseBranch}`, `origin/${branch}`);
+    } catch {
+      try { diff = await GitClient.getDiff(repoPath, baseBranch, branch); } catch { diff = ''; }
+    }
+    return this.runReviewOnDiff(task, diff, acceptanceCriteria, attempt);
+  },
+
+  /** Phần chung: nhận chuỗi diff → LLM review tĩnh → lưu kết quả + comment. */
+  async runReviewOnDiff(task: Task, diff: string, acceptanceCriteria: string[], attempt: number): Promise<ReviewResponse> {
     if (!diff || diff.trim().length === 0) {
       const result: ReviewResponse = {
         verdict: 'FAIL',
-        issues: [{ file: '', severity: 'error', description: 'No changes detected in diff' }],
+        issues: [{ file: '', severity: 'error', description: 'Không phát hiện thay đổi nào để review (diff rỗng). Kiểm tra tên nhánh / nhánh đã push chưa.' }],
         conventions_check: false,
         summary: 'No changes to review',
       };
       await this.persistResult(task.id, undefined, attempt, result);
+      await this.postReviewComment(task, result);
       return result;
     }
 

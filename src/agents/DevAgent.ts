@@ -63,11 +63,11 @@ function writeWorktreeSettings(worktreePath: string): void {
   writeFileSync(join(settingsDir, 'settings.json'), JSON.stringify(settings, null, 2));
 }
 
-function buildPrompt(task: Task, planContext: string, worktreePath: string, memoryContext = ''): string {
+function buildPrompt(task: Task, planContext: string, worktreePath: string, repoPath: string, memoryContext = ''): string {
   // Khi MODEL_DEV=claude (CLI): bỏ inject CLAUDE.md vì Claude Code tự nạp từ worktree → tiết kiệm token.
-  const conventions = conventionsBlock(config.MODEL_DEV);
+  const conventions = conventionsBlock(config.MODEL_DEV, repoPath);
   // Bản đồ dự án (cache) → biết file ở đâu, đỡ phải Glob/Grep dò dẫm. Vẫn Read file cụ thể khi cần.
-  const map = ProjectKnowledge.summary(config.GIT_REPO_PATH, 4000);
+  const map = ProjectKnowledge.summary(repoPath, 4000);
   const projectMap = map ? `\n## Bản đồ dự án (tham khảo — đọc file cụ thể bằng Read khi cần)\n${map}\n` : '';
 
   return `You are implementing a software task. Work ONLY inside: ${worktreePath}
@@ -100,7 +100,7 @@ export const DevAgent = {
     const card = await TrelloClient.getCard(task.card_id).catch(() => null);
     const epicId = card ? CardMemory.parseEpicId(card.desc) : null;
     if (epicId) memoryContext += await CardMemory.epicContext(epicId);
-    const prompt = buildPrompt(task, planContext, worktreePath, memoryContext);
+    const prompt = buildPrompt(task, planContext, worktreePath, task.repo_path ?? config.GIT_REPO_PATH, memoryContext);
     const timeoutMs = config.MAX_TASK_PROCESSING_MINUTES * 60 * 1000;
 
     // Pre-approve tools via settings.json instead of --dangerously-skip-permissions

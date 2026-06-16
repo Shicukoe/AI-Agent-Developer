@@ -57,6 +57,14 @@ export const TrelloClient = {
     return trelloFetch<TrelloLabel[]>(`/boards/${boardId}/labels?limit=1000`);
   },
 
+  /** Tạo label mới trên board. color theo bảng màu Trello (vd 'green','blue','purple'...). */
+  async createLabel(boardId: string, name: string, color: string): Promise<TrelloLabel> {
+    return trelloFetch<TrelloLabel>('/labels', {
+      method: 'POST',
+      body: JSON.stringify({ name, color, idBoard: boardId }),
+    });
+  },
+
   async getBoardActions(boardId: string, opts: { since?: string; filter?: string } = {}): Promise<TrelloAction[]> {
     const filter = opts.filter ?? 'updateCard,commentCard,addMemberToCard';
     const since = opts.since ? `&since=${opts.since}` : '';

@@ -36,6 +36,11 @@ export const GitClient = {
     return stdout.trim();
   },
 
+  /** Fetch các ref từ origin (read-only) — phục vụ review nhánh do người tự code. */
+  async fetch(repoPath: string, refs: string[]): Promise<void> {
+    await ShellExecutor.git(['fetch', 'origin', ...refs], repoPath);
+  },
+
   async getDiff(repoPath: string, base: string, head?: string): Promise<string> {
     const args = head
       ? ['diff', `${base}...${head}`]

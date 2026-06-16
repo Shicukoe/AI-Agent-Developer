@@ -10,13 +10,13 @@ import type { ConversationMessage } from '../state/ConversationRepository.js';
  * @param provider provider của stage. Khi là Claude CLI (+ OPTIMIZE_HISTORY), khối CLAUDE.md được
  * thay bằng ghi chú ngắn vì Claude Code tự nạp file từ repo — tiết kiệm token, không mất ngữ cảnh.
  */
-function repoContext(provider: LlmProvider = 'gemini'): string {
+function repoContext(provider: LlmProvider = 'gemini', repoPath: string = config.GIT_REPO_PATH): string {
   // Khối CLAUDE.md (đầy đủ hoặc ghi chú ngắn tuỳ provider) — xem conventions.ts.
-  let ctx = conventionsBlock(provider);
+  let ctx = conventionsBlock(provider, repoPath);
 
   // Overview KHÔNG được Claude Code auto-load (không phải CLAUDE.md) nên vẫn inject. Bọc sentinel
   // để optimizeFirstMessage cắt được ở các lượt sau của vòng lặp gemini/openai.
-  const overview = join(config.GIT_REPO_PATH, 'cons_weekly_report', 'docs', '00_TONG_THE.md');
+  const overview = join(repoPath, 'cons_weekly_report', 'docs', '00_TONG_THE.md');
   if (existsSync(overview)) {
     ctx += `\n\n<!--AUTOPILOT_OVERVIEW_START-->\n## Project Overview (from docs/00_TONG_THE.md)\n${readFileSync(overview, 'utf8')}` +
       `\n\n> Đây chỉ là tổng quan. Trước khi sửa code, hãy đọc tài liệu màn hình/lĩnh vực liên quan` +
@@ -50,10 +50,10 @@ function historyContext(history: ConversationMessage[]): string {
 }
 
 export const PromptBuilder = {
-  analyst(card: TrelloCard, history: ConversationMessage[], provider: LlmProvider = 'gemini'): string {
+  analyst(card: TrelloCard, history: ConversationMessage[], provider: LlmProvider = 'gemini', repoPath: string = config.GIT_REPO_PATH): string {
     return `You are an expert software analyst for a construction project reporting system (Odoo 16 + React 18).
 Your job: analyze the Trello task, locate the exact file(s) and line(s) that need to change, and produce a precise implementation plan as a Trello comment.
-${repoContext(provider)}
+${repoContext(provider, repoPath)}
 
 ${cardContext(card)}
 ${historyContext(history)}
@@ -61,10 +61,10 @@ ${historyContext(history)}
 Respond ONLY via the \`post_analysis\` tool. Be specific: exact file paths, line numbers, before/after code snippets.`;
   },
 
-  dev(card: TrelloCard, planContext: string, history: ConversationMessage[], provider: LlmProvider = 'gemini'): string {
+  dev(card: TrelloCard, planContext: string, history: ConversationMessage[], provider: LlmProvider = 'gemini', repoPath: string = config.GIT_REPO_PATH): string {
     return `You are an expert developer implementing a task for a construction project reporting system (Odoo 16 + React 18).
 Follow ALL conventions in CLAUDE.md strictly. Write minimal, correct code — no extra features, no refactoring beyond the task scope.
-${repoContext(provider)}
+${repoContext(provider, repoPath)}
 
 ${cardContext(card)}
 
@@ -75,11 +75,11 @@ ${historyContext(history)}
 Use the \`take_actions\` tool to write files and commit your changes. Work step by step.`;
   },
 
-  reviewer(diff: string, taskDescription: string, acceptanceCriteria: string[], provider: LlmProvider = 'gemini'): string {
+  reviewer(diff: string, taskDescription: string, acceptanceCriteria: string[], provider: LlmProvider = 'gemini', repoPath: string = config.GIT_REPO_PATH): string {
     return `You are an independent code reviewer for a construction project reporting system (Odoo 16 + React 18).
 Review the following diff strictly against the project conventions and acceptance criteria.
 DO NOT be lenient. Flag any violation of CLAUDE.md conventions as an error.
-${repoContext(provider)}
+${repoContext(provider, repoPath)}
 
 ## Task Description
 ${taskDescription}
@@ -95,9 +95,9 @@ ${diff}
 Respond via the \`submit_review\` tool with verdict PASS or FAIL, and specific issues if any.`;
   },
 
-  planner(card: TrelloCard, codeContext: string, provider: LlmProvider = 'gemini'): string {
+  planner(card: TrelloCard, codeContext: string, provider: LlmProvider = 'gemini', repoPath: string = config.GIT_REPO_PATH): string {
     return `You are a senior software architect planning implementation for a construction project reporting system.
-${repoContext(provider)}
+${repoContext(provider, repoPath)}
 
 ${cardContext(card)}
 

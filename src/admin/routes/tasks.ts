@@ -7,7 +7,7 @@ import { getDb } from '../../state/db.js';
 import { TrelloClient } from '../../trello/TrelloClient.js';
 import { StageRouter } from '../../agents/StageRouter.js';
 import { WorktreeManager } from '../../git/WorktreeManager.js';
-import { stageForListName } from '../../config.js';
+import { config, stageForListName } from '../../config.js';
 import { childLogger } from '../../utils/logger.js';
 
 const log = childLogger('admin-tasks');
@@ -70,6 +70,7 @@ export function tasksRouter(): Router {
       total: TaskRepository.count(statuses),
       limit,
       offset,
+      defaultRepoPath: config.GIT_REPO_PATH,
     });
   }));
 

@@ -2,6 +2,7 @@ import { EventEmitter } from 'events';
 import { TrelloClient } from './TrelloClient.js';
 import { getDb } from '../state/db.js';
 import { config, stageForListName } from '../config.js';
+import { RepoRegistry } from '../repos/RepoRegistry.js';
 import { childLogger } from '../utils/logger.js';
 import type { TrelloEvent, TrelloAction } from './types.js';
 
@@ -72,7 +73,8 @@ export class TrelloPoller extends EventEmitter {
   }
 
   private async poll(): Promise<void> {
-    for (const boardId of config.TRELLO_BOARD_IDS) {
+    // Đọc lại mỗi vòng → board thêm qua admin được quét ngay, không cần restart.
+    for (const boardId of RepoRegistry.watchedBoardIds()) {
       try {
         const lastSeen = getLastSeen(boardId);
         const actions = await TrelloClient.getBoardActions(boardId, { since: lastSeen, filter: 'updateCard,commentCard,addLabelToCard' });
