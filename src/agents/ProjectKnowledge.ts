@@ -1,186 +1,308 @@
-import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'fs';
+import { existsSync, readFileSync, writeFileSync, mkdirSync, readdirSync } from 'fs';
 import { join } from 'path';
 import { createHash } from 'crypto';
 import { ShellExecutor } from '../shell/ShellExecutor.js';
 import { LlmClient } from '../claude/LlmClient.js';
+import { TaskRepository, type Task } from '../state/TaskRepository.js';
 import { config } from '../config.js';
 import { childLogger } from '../utils/logger.js';
 
 const log = childLogger('project-knowledge');
 
+/** Một luồng xử lý (nghiệp vụ hoặc kỹ thuật) — đơn vị để chia nhỏ kiến trúc. */
+export interface FlowInfo {
+  key: string;          // slug, dùng làm tên file flows/<key>.md
+  title: string;        // tên luồng hiển thị
+  keywords: string[];   // từ khoá để chọn luồng liên quan
+  paths: string[];      // file/thư mục chính của luồng (gợi ý cho indexer + chọn luồng)
+}
 export interface KnowledgeMeta {
-  built_at_commit: string;   // commit hash của nhánh base lúc dựng cache
-  built_at: number;          // timestamp
+  built_at_commit: string;
+  built_at: number;
   version: number;
+  flows: FlowInfo[];    // index luồng (sinh kèm overview)
 }
 export interface Knowledge {
-  content: string;           // bản đồ dự án (markdown)
+  overview: string;     // kiến trúc TỔNG THỂ (markdown)
   meta: KnowledgeMeta;
 }
 
-const VERSION = 1;
+const VERSION = 2;      // bump: cấu trúc đa-file (overview + flows)
 
-/** Guard: các repo đang được (re)build cache — tránh dựng trùng/chồng khi chạy nền nhiều task. */
+/** Guard: repo đang dựng overview / flows — tránh dựng trùng khi chạy nền nhiều task. */
 const building = new Set<string>();
+const flowsBuilding = new Set<string>();
 
-/** Output indexer có phải bản đồ hợp lệ không (chặn lưu chuỗi lỗi/rỗng như "Request timed out"). */
 function isValidMap(content: string): boolean {
   const c = content.trim();
-  if (c.length < 200) return false;                       // quá ngắn → không phải bản đồ
+  if (c.length < 200) return false;
   if (/^(request timed out|error|api error|\(no )/i.test(c)) return false;
-  if (!c.includes('#')) return false;                      // không có heading markdown
+  if (!c.includes('#')) return false;
   return true;
 }
 
-function dir(): string { return join(config.DATA_DIR, 'knowledge'); }
-function key(repoPath: string): string { return createHash('sha1').update(repoPath).digest('hex').slice(0, 12); }
-function mdPath(repoPath: string): string { return join(dir(), `${key(repoPath)}.md`); }
-function metaPath(repoPath: string): string { return join(dir(), `${key(repoPath)}.json`); }
-
-/** Đọc commit hash của một ref (base branch / HEAD). Null nếu repo không phải git / lỗi. */
-async function gitHead(repoPath: string, ref: string): Promise<string | null> {
-  try {
-    const { stdout } = await ShellExecutor.git(['rev-parse', ref], repoPath);
-    return stdout.trim() || null;
-  } catch { return null; }
+function slug(s: string): string {
+  return (s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '')
+    .replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 40) || 'flow';
 }
 
-/** Danh sách file đã đổi giữa 2 commit (read-only). */
+function baseDir(): string { return join(config.DATA_DIR, 'knowledge'); }
+function key(repoPath: string): string { return createHash('sha1').update(repoPath).digest('hex').slice(0, 12); }
+function repoDir(repoPath: string): string { return join(baseDir(), key(repoPath)); }
+function overviewPath(repoPath: string): string { return join(repoDir(repoPath), 'overview.md'); }
+function metaPath(repoPath: string): string { return join(repoDir(repoPath), 'meta.json'); }
+function flowsDir(repoPath: string): string { return join(repoDir(repoPath), 'flows'); }
+function flowPath(repoPath: string, flowKey: string): string { return join(flowsDir(repoPath), `${flowKey}.md`); }
+
+async function gitHead(repoPath: string, ref: string): Promise<string | null> {
+  try { const { stdout } = await ShellExecutor.git(['rev-parse', ref], repoPath); return stdout.trim() || null; }
+  catch { return null; }
+}
 async function changedFiles(repoPath: string, from: string, to: string): Promise<string[]> {
-  try {
-    const { stdout } = await ShellExecutor.git(['diff', '--name-only', from, to], repoPath);
-    return stdout.split('\n').map(s => s.trim()).filter(Boolean);
-  } catch { return []; }
+  try { const { stdout } = await ShellExecutor.git(['diff', '--name-only', from, to], repoPath); return stdout.split('\n').map(s => s.trim()).filter(Boolean); }
+  catch { return []; }
+}
+
+/** Tách overview markdown + danh sách luồng (khối ```json cuối) từ output indexer. */
+function parseOverview(raw: string): { overview: string; flows: FlowInfo[] } {
+  let overview = raw.trim();
+  let flows: FlowInfo[] = [];
+  const blocks = [...raw.matchAll(/```json\s*([\s\S]*?)```/g)];
+  for (let i = blocks.length - 1; i >= 0; i--) {
+    try {
+      const parsed = JSON.parse(blocks[i][1].trim());
+      if (Array.isArray(parsed)) {
+        flows = parsed
+          .filter((f: unknown) => f && typeof (f as FlowInfo).title === 'string')
+          .map((f: Partial<FlowInfo>) => ({
+            key: slug(f.key || f.title || ''),
+            title: String(f.title),
+            keywords: Array.isArray(f.keywords) ? f.keywords.map(String) : [],
+            paths: Array.isArray(f.paths) ? f.paths.map(String) : [],
+          }))
+          .slice(0, config.KNOWLEDGE_MAX_FLOWS);
+        // bỏ khối json khỏi overview để file .md sạch
+        overview = raw.replace(blocks[i][0], '').trim();
+        break;
+      }
+    } catch { /* thử khối trước */ }
+  }
+  return { overview, flows };
 }
 
 export const ProjectKnowledge = {
-  /** Đọc cache hiện có (content + meta), null nếu chưa có. */
   get(repoPath: string): Knowledge | null {
     try {
-      if (!existsSync(mdPath(repoPath)) || !existsSync(metaPath(repoPath))) return null;
-      const content = readFileSync(mdPath(repoPath), 'utf8');
+      if (!existsSync(overviewPath(repoPath)) || !existsSync(metaPath(repoPath))) return null;
+      const overview = readFileSync(overviewPath(repoPath), 'utf8');
       const meta = JSON.parse(readFileSync(metaPath(repoPath), 'utf8')) as KnowledgeMeta;
-      return { content, meta };
+      if (!Array.isArray(meta.flows)) meta.flows = [];
+      return { overview, meta };
     } catch { return null; }
   },
 
-  /** Bản rút gọn cho Triage (rẻ): vài nghìn ký tự đầu của cache, hoặc '' nếu chưa có. */
+  /** Kiến trúc TỔNG THỂ (overview) rút gọn — dùng cho Triage và làm nền cho mọi agent. */
   summary(repoPath: string, maxChars = 2500): string {
     const k = this.get(repoPath);
     if (!k) return '';
-    return k.content.length > maxChars ? k.content.slice(0, maxChars) + '\n…(rút gọn)' : k.content;
+    const o = k.overview;
+    return o.length > maxChars ? o.slice(0, maxChars) + '\n…(rút gọn)' : o;
   },
 
-  save(repoPath: string, content: string, commit: string): Knowledge {
-    mkdirSync(dir(), { recursive: true });
-    const meta: KnowledgeMeta = { built_at_commit: commit, built_at: Date.now(), version: VERSION };
-    writeFileSync(mdPath(repoPath), content, 'utf8');
+  loadFlow(repoPath: string, flowKey: string): string | null {
+    try { const p = flowPath(repoPath, flowKey); return existsSync(p) ? readFileSync(p, 'utf8') : null; }
+    catch { return null; }
+  },
+
+  saveOverview(repoPath: string, overview: string, flows: FlowInfo[], commit: string): Knowledge {
+    mkdirSync(repoDir(repoPath), { recursive: true });
+    const meta: KnowledgeMeta = { built_at_commit: commit, built_at: Date.now(), version: VERSION, flows };
+    writeFileSync(overviewPath(repoPath), overview, 'utf8');
     writeFileSync(metaPath(repoPath), JSON.stringify(meta, null, 2), 'utf8');
-    return { content, meta };
+    return { overview, meta };
   },
 
-  /**
-   * Đảm bảo cache tươi trước khi agent dùng:
-   * - chưa có → build (cold start, đọc repo 1 lần)
-   * - git base đổi: ≤ MAX file → incremental (chỉ đọc file đã đổi); > MAX → rebuild
-   * - quá TTL → rebuild
-   */
+  /** Đảm bảo cache tươi (chạy nền ở caller). Cold start/đổi nhiều/TTL → dựng lại overview + index luồng. */
   async ensureFresh(repoPath: string, baseBranch?: string): Promise<Knowledge> {
     const k = key(repoPath);
     const existingNow = this.get(repoPath);
-    // Đang có một lượt (re)build chạy → không khởi động lượt nữa; trả cache hiện có (hoặc rỗng).
     if (building.has(k)) {
-      return existingNow ?? { content: '', meta: { built_at_commit: '', built_at: 0, version: VERSION } };
+      return existingNow ?? { overview: '', meta: { built_at_commit: '', built_at: 0, version: VERSION, flows: [] } };
     }
-
     const base = baseBranch ?? config.GIT_DEFAULT_BASE_BRANCH;
     const cur = (await gitHead(repoPath, base)) ?? (await gitHead(repoPath, 'HEAD')) ?? '';
     const existing = existingNow;
 
     if (!existing) {
-      log.info({ repoPath }, 'Knowledge cache: cold start — building');
+      log.info({ repoPath }, 'Knowledge: cold start — building overview');
       return this.runGuarded(k, () => this.build(repoPath, cur));
     }
-
-    // Git đổi?
     if (cur && existing.meta.built_at_commit && cur !== existing.meta.built_at_commit) {
       const files = await changedFiles(repoPath, existing.meta.built_at_commit, cur);
       if (files.length === 0) {
-        log.debug({ repoPath }, 'Knowledge cache: commit khác nhưng 0 file đổi — coi như tươi');
+        log.debug({ repoPath }, 'Knowledge: commit khác nhưng 0 file đổi — coi như tươi');
       } else if (files.length <= config.KNOWLEDGE_INCREMENTAL_MAX_FILES) {
-        log.info({ repoPath, changed: files.length }, 'Knowledge cache: incremental update');
+        log.info({ repoPath, changed: files.length }, 'Knowledge: incremental update overview');
         return this.runGuarded(k, () => this.incrementalUpdate(repoPath, existing, files, cur));
       } else {
-        log.info({ repoPath, changed: files.length }, 'Knowledge cache: nhiều thay đổi — rebuild');
+        log.info({ repoPath, changed: files.length }, 'Knowledge: nhiều thay đổi — rebuild');
         return this.runGuarded(k, () => this.build(repoPath, cur));
       }
     }
-
-    // TTL
     const ageDays = (Date.now() - existing.meta.built_at) / 86_400_000;
     if (ageDays > config.KNOWLEDGE_TTL_DAYS) {
-      log.info({ repoPath, ageDays: Math.round(ageDays) }, 'Knowledge cache: hết TTL — rebuild');
+      log.info({ repoPath, ageDays: Math.round(ageDays) }, 'Knowledge: hết TTL — rebuild');
       return this.runGuarded(k, () => this.build(repoPath, cur || existing.meta.built_at_commit));
     }
-
+    // Cache tươi — đảm bảo flow docs còn thiếu được dựng (nền).
+    void this.buildFlows(repoPath);
     return existing;
   },
 
-  /** Chạy 1 lượt build/update có guard (đánh dấu đang build → tránh trùng → luôn nhả guard). */
   async runGuarded(k: string, fn: () => Promise<Knowledge>): Promise<Knowledge> {
     building.add(k);
     try { return await fn(); }
     finally { building.delete(k); }
   },
 
-  /** Cold start / rebuild: IndexerAgent khám phá repo 1 lần → sinh BẢN ĐỒ DỰ ÁN chi tiết. */
+  /** Phase A: khám phá repo → overview (tổng thể) + index luồng. Sau đó dựng flow docs ở NỀN. */
   async build(repoPath: string, commit: string): Promise<Knowledge> {
     const prompt =
-      `Bạn là kỹ sư khảo sát codebase tại: ${repoPath}. Hãy khám phá HIỆU QUẢ (đừng đọc tràn lan — ` +
-      `ngữ cảnh quá lớn sẽ lỗi). Trình tự gợi ý:\n` +
-      `1. Glob lấy cây thư mục tổng thể.\n` +
-      `2. Read các file "kể chuyện" nhất: README, tài liệu trong docs/, manifest/package.json/__manifest__.py, ` +
-      `CLAUDE.md (nếu có).\n` +
-      `3. Read CÓ CHỌN LỌC vài file ĐẠI DIỆN cho mỗi tầng (1 model, 1 controller/route, 1 view/component) — ` +
-      `KHÔNG đọc mọi file, KHÔNG đọc trọn file lớn (>500 dòng) mà chỉ phần đầu.\n` +
-      `4. Khi đã đủ hiểu thì DỪNG và xuất bản đồ.\n\n` +
-      `Sinh "BẢN ĐỒ DỰ ÁN" (markdown) để agent khác đọc xong biết hệ thống làm gì, ai dùng, luồng ra sao, ` +
-      `"cái gì ở file nào". KHÔNG chép nguyên code; mô tả + trỏ đường dẫn (kèm số dòng khi cần). Gồm:\n\n` +
-      `## Tổng quan & mục tiêu hệ thống\n## Vai trò người dùng & luồng xử lý chính (nếu có)\n` +
-      `## Tech stack\n## Sơ đồ thư mục/module (cây rút gọn + vai trò từng phần)\n` +
-      `## Map màn hình/feature → file/route\n## Data model chính & pattern\n## API endpoints (nếu có)\n` +
-      `## Quy ước & best practices (đặt tên, format số/ngày, phân quyền, lệnh build/test)\n` +
-      `## File/điểm vào quan trọng (đường dẫn:dòng)\n\n` +
-      `Viết TIẾNG VIỆT, chính xác theo code thật. Tối đa ~700 dòng. CHỈ in markdown bản đồ, không lời dẫn.`;
-    const content = (await LlmClient.run(prompt, config.MODEL_INDEXER, {
+      `Bạn là kỹ sư khảo sát codebase tại: ${repoPath}. Khám phá HIỆU QUẢ (đừng đọc tràn lan):\n` +
+      `1. Glob lấy cây thư mục. 2. Read README/docs/manifest/package.json/__manifest__.py/CLAUDE.md. ` +
+      `3. Read CÓ CHỌN LỌC vài file đại diện mỗi tầng (không đọc mọi file, không đọc trọn file >500 dòng).\n\n` +
+      `Sinh "KIẾN TRÚC TỔNG THỂ" (markdown), KHÔNG chép code, mô tả + trỏ đường dẫn:\n` +
+      `## Tổng quan & mục tiêu hệ thống\n## Vai trò người dùng & luồng xử lý chính\n## Tech stack\n` +
+      `## Sơ đồ thư mục/module (cây + vai trò)\n## Data model chính & pattern\n## API endpoints (nếu có)\n` +
+      `## Quy ước & best practices\n## File/điểm vào quan trọng (đường dẫn:dòng)\n\n` +
+      `CUỐI CÙNG, in một khối \`\`\`json là DANH SÁCH LUỒNG xử lý chính (nghiệp vụ HOẶC kỹ thuật) để ` +
+      `chia nhỏ kiến trúc — mỗi luồng là một mảng việc gắn kết, agent sau chỉ cần đọc luồng liên quan:\n` +
+      `\`\`\`json\n[{"key":"slug-ngan","title":"Tên luồng","keywords":["từ khoá",...],"paths":["thư mục/file chính",...]}]\n\`\`\`\n` +
+      `Chọn ${Math.min(4, config.KNOWLEDGE_MAX_FLOWS)}-${config.KNOWLEDGE_MAX_FLOWS} luồng bao quát hệ thống. ` +
+      `TIẾNG VIỆT, overview ≤ 600 dòng. CHỈ in markdown rồi khối json, không lời dẫn.`;
+    const raw = (await LlmClient.run(prompt, config.MODEL_INDEXER, {
       allowedTools: ['Read', 'Glob', 'Grep'], cwd: repoPath,
       maxTurns: config.KNOWLEDGE_BUILD_MAX_TURNS, timeoutMs: config.KNOWLEDGE_BUILD_TIMEOUT_MS,
       label: `index:${key(repoPath)}`,
     })).trim();
-    // KHÔNG lưu output rác/lỗi (vd "Request timed out") → tránh "nhiễm" cache, để lần sau build lại.
-    if (!isValidMap(content)) {
-      throw new Error(`Indexer trả nội dung không hợp lệ, bỏ qua lưu cache: "${content.slice(0, 80)}"`);
-    }
-    return this.save(repoPath, content, commit);
+    if (!isValidMap(raw)) throw new Error(`Indexer overview không hợp lệ: "${raw.slice(0, 80)}"`);
+    const { overview, flows } = parseOverview(raw);
+    const saved = this.saveOverview(repoPath, overview, flows, commit);
+    log.info({ repoPath, flows: flows.length }, 'Knowledge: overview built — dựng flow docs ở nền');
+    void this.buildFlows(repoPath);   // dựng kiến trúc từng luồng ở nền
+    return saved;
   },
 
-  /** Cập nhật tăng dần: chỉ đọc các file đã đổi → vá đúng mục liên quan trong cache. */
+  /** Incremental: vá overview theo file đã đổi (giữ index luồng cũ), rồi dựng flow còn thiếu (nền). */
   async incrementalUpdate(repoPath: string, existing: Knowledge, files: string[], commit: string): Promise<Knowledge> {
     const prompt =
-      `Bản đồ dự án hiện tại (markdown) cần CẬP NHẬT do ${files.length} file vừa thay đổi.\n\n` +
-      `### Bản đồ hiện tại\n${existing.content}\n\n` +
-      `### File đã thay đổi (đọc bằng tool Read nếu cần để hiểu ảnh hưởng)\n${files.map(f => `- ${f}`).join('\n')}\n\n` +
-      `Hãy CHỈNH các mục liên quan của bản đồ cho khớp thay đổi (thêm/sửa/bỏ entry). Giữ nguyên phần không liên quan. ` +
-      `CHỈ in lại TOÀN BỘ markdown bản đồ đã cập nhật, không lời dẫn.`;
+      `KIẾN TRÚC TỔNG THỂ hiện tại cần CẬP NHẬT do ${files.length} file vừa đổi.\n\n` +
+      `### Hiện tại\n${existing.overview}\n\n### File đã đổi (Read nếu cần)\n${files.map(f => `- ${f}`).join('\n')}\n\n` +
+      `CHỈNH các mục liên quan cho khớp (thêm/sửa/bỏ), giữ nguyên phần không liên quan. ` +
+      `CHỈ in lại TOÀN BỘ markdown overview đã cập nhật, KHÔNG kèm khối json, không lời dẫn.`;
     const content = (await LlmClient.run(prompt, config.MODEL_INDEXER, {
       allowedTools: ['Read', 'Glob', 'Grep'], cwd: repoPath, maxTurns: 12,
       timeoutMs: config.KNOWLEDGE_BUILD_TIMEOUT_MS, label: `index:${key(repoPath)}`,
     })).trim();
-    // Output lỗi → giữ nguyên cache cũ (đừng ghi đè bằng rác).
-    if (!isValidMap(content)) {
-      log.warn({ repoPath }, 'Incremental update trả nội dung không hợp lệ — giữ cache cũ');
-      return existing;
+    if (!isValidMap(content)) { log.warn({ repoPath }, 'Incremental không hợp lệ — giữ cache cũ'); return existing; }
+    const saved = this.saveOverview(repoPath, content, existing.meta.flows, commit);
+    void this.buildFlows(repoPath);
+    return saved;
+  },
+
+  /** Dựng kiến trúc CHI TIẾT cho các luồng CHƯA có file (chạy tuần tự, nền). */
+  async buildFlows(repoPath: string): Promise<void> {
+    const k = key(repoPath);
+    if (flowsBuilding.has(k)) return;
+    const meta = this.get(repoPath)?.meta;
+    if (!meta || meta.flows.length === 0) return;
+    const missing = meta.flows.filter(f => !existsSync(flowPath(repoPath, f.key)));
+    if (missing.length === 0) return;
+    flowsBuilding.add(k);
+    try {
+      mkdirSync(flowsDir(repoPath), { recursive: true });
+      for (const flow of missing) {
+        try { await this.buildFlowDoc(repoPath, flow); }
+        catch (err) { log.warn({ repoPath, flow: flow.key, err: (err as Error).message }, 'Dựng flow doc lỗi — bỏ qua'); }
+      }
+    } finally { flowsBuilding.delete(k); }
+  },
+
+  async buildFlowDoc(repoPath: string, flow: FlowInfo): Promise<void> {
+    const prompt =
+      `Trong repo tại ${repoPath}, viết KIẾN TRÚC CHI TIẾT cho luồng "${flow.title}".\n` +
+      `File/đường dẫn liên quan (gợi ý — Read/Glob/Grep TẬP TRUNG vào đây, đừng lan sang luồng khác):\n` +
+      `${flow.paths.map(p => `- ${p}`).join('\n') || '- (tự tìm theo từ khoá: ' + flow.keywords.join(', ') + ')'}\n\n` +
+      `Trình bày (markdown): mục tiêu nghiệp vụ của luồng; các bước/luồng xử lý; file/hàm/route chính ` +
+      `(đường dẫn:dòng); data model liên quan; nơi hay phải sửa; lưu ý/cạm bẫy. ` +
+      `KHÔNG chép nguyên code. TIẾNG VIỆT, ≤ 300 dòng, CHỈ markdown.`;
+    const content = (await LlmClient.run(prompt, config.MODEL_INDEXER, {
+      allowedTools: ['Read', 'Glob', 'Grep'], cwd: repoPath,
+      maxTurns: config.KNOWLEDGE_FLOW_MAX_TURNS, timeoutMs: config.KNOWLEDGE_BUILD_TIMEOUT_MS,
+      label: `flow:${flow.key}`,
+    })).trim();
+    if (!isValidMap(content)) throw new Error(`flow "${flow.key}" output không hợp lệ`);
+    mkdirSync(flowsDir(repoPath), { recursive: true });
+    writeFileSync(flowPath(repoPath, flow.key), content, 'utf8');
+    log.info({ repoPath, flow: flow.key }, 'Knowledge: flow doc built');
+  },
+
+  /** 1 LLM rẻ đọc card + index luồng → chọn (các) luồng liên quan. [] nếu không rõ. */
+  async selectFlowKeys(repoPath: string, cardText: string, flows: FlowInfo[]): Promise<string[]> {
+    if (flows.length === 0) return [];
+    const list = flows.map(f => `- ${f.key}: ${f.title}${f.keywords.length ? ` [${f.keywords.join(', ')}]` : ''}`).join('\n');
+    try {
+      const res = await LlmClient.runForJson<{ keys: string[] }>(
+        `Chọn (các) LUỒNG liên quan NHẤT để xử lý task dưới đây. Chọn 1-2 luồng sát nhất; nếu không luồng nào rõ → [].\n\n` +
+        `### Task\n${cardText.slice(0, 1500)}\n\n### Luồng của dự án\n${list}\n\n` +
+        `Trả JSON: {"keys": ["key1", ...]} — chỉ dùng key có trong danh sách.`,
+        config.MODEL_TRIAGE,
+        { maxTurns: 1, label: `flowpick:${key(repoPath)}` },
+      );
+      const valid = new Set(flows.map(f => f.key));
+      return (res.keys ?? []).map(slug).filter(x => valid.has(x)).slice(0, 2);
+    } catch (err) {
+      log.warn({ repoPath, err: (err as Error).message }, 'selectFlowKeys lỗi — dùng overview-only');
+      return [];
     }
-    return this.save(repoPath, content, commit);
+  },
+
+  /**
+   * Ngữ cảnh kiến trúc cho 1 task: overview (tổng thể) + kiến trúc luồng LIÊN QUAN (chọn 1 lần/task,
+   * cache keys vào metadata.knowledge_flows). Agent đọc ít hơn, tập trung vào đúng luồng.
+   */
+  async contextForTask(task: Task, cardText: string, maxOverview = 3000, maxFlow = 4000): Promise<string> {
+    const repoPath = task.repo_path ?? config.GIT_REPO_PATH;
+    const k = this.get(repoPath);
+    if (!k) return '';
+    let block = `## Kiến trúc tổng thể\n${k.overview.length > maxOverview ? k.overview.slice(0, maxOverview) + '\n…(rút gọn)' : k.overview}`;
+
+    const flows = k.meta.flows ?? [];
+    if (flows.length === 0) return block;
+
+    // Lấy keys đã chọn (cache theo task) hoặc chọn mới 1 lần.
+    let keys: string[] | null = null;
+    try {
+      const meta = task.metadata ? JSON.parse(task.metadata) as Record<string, unknown> : {};
+      if (Array.isArray(meta.knowledge_flows)) keys = (meta.knowledge_flows as string[]);
+    } catch { /* ignore */ }
+    if (keys === null) {
+      keys = await this.selectFlowKeys(repoPath, cardText, flows);
+      TaskRepository.mergeMetadata(task.id, { knowledge_flows: keys });
+    }
+
+    const byKey = new Map(flows.map(f => [f.key, f]));
+    for (const key0 of keys) {
+      const doc = this.loadFlow(repoPath, key0);
+      const title = byKey.get(key0)?.title ?? key0;
+      if (doc) block += `\n\n## Kiến trúc luồng liên quan: ${title}\n${doc.length > maxFlow ? doc.slice(0, maxFlow) + '\n…(rút gọn)' : doc}`;
+    }
+    return block;
+  },
+
+  /** Liệt kê key các flow đã có file (debug/diagnostics). */
+  listBuiltFlows(repoPath: string): string[] {
+    try { return readdirSync(flowsDir(repoPath)).filter(f => f.endsWith('.md')).map(f => f.replace(/\.md$/, '')); }
+    catch { return []; }
   },
 };

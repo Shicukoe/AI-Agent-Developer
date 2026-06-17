@@ -426,48 +426,56 @@ export const StageRouter = {
   },
 
   /**
-   * Test cho luồng "agent làm tester": người tự code + push 1 nhánh, ghi `Branch: <tên>` trong mô tả
-   * card, kéo sang Test → agent review diff `base...branch` (READ-ONLY, không đụng base). PASS thì
-   * người tự merge. Không tạo worktree, không commit, không merge.
+   * Test cho luồng "agent làm tester": người tự code rồi chỉ định phần cần review trong mô tả card.
+   * Agent review READ-ONLY (chỉ fetch + diff), KHÔNG worktree/commit/merge. Hỗ trợ:
+   *  - `Branch: <ref>` (+ `Base: <ref>`)  → diff `base...branch` (3-dot). base PHẢI là nhánh CHƯA chứa
+   *    thay đổi (vd dev/main) — nên dù đã merge vào staging vẫn soi đúng phần thay đổi.
+   *  - `Range: a..b` / `Commits: a..b`     → diff đúng dải commit (vd `dev..staging`, `<sha>..staging`).
+   *  - `Since: <sha>` (kèm `Branch:`)       → quy thành `<sha>..<branch>`.
    */
   async runBranchReview(task: Task): Promise<void> {
     try {
       const card = await TrelloClient.getCard(task.card_id);
       const repoPath = task.repo_path ?? config.GIT_REPO_PATH;
       const baseBranch = RepoConfigRepository.getById(task.repo_key ?? '')?.base_branch ?? config.GIT_DEFAULT_BASE_BRANCH;
-      const branch = parseReviewBranch(card.desc);
-      if (!branch) {
+      const spec = parseReviewSpec(card.desc);
+
+      if (!spec.range && !spec.branch) {
         await TrelloClient.addComment(task.card_id,
-          '⚠️ **[AI AGENT] Chưa rõ nhánh cần review.**\n\n' +
-          '**Cách dùng (bạn tự code, agent làm tester):**\n' +
-          `1. Tạo nhánh từ \`${baseBranch}\`, đặt tên \`feature/<mô-tả-ngắn>\`, code xong rồi \`git push\` (đừng merge vào \`${baseBranch}\` trước).\n` +
-          '2. Thêm 1 dòng vào **mô tả card**: `Branch: feature/<mô-tả-ngắn>` (đúng tên nhánh đã push).\n' +
-          '3. Kéo lại list **Test**.\n\n' +
-          `Agent sẽ review **chỉ-đọc** diff \`${baseBranch}...nhánh\` (không đụng \`${baseBranch}\`, không tự merge). ` +
-          'Hoặc dùng luồng **Dev** nếu muốn agent tự code.');
+          '⚠️ **[AI AGENT] Chưa rõ phần cần review.** Thêm vào **mô tả card** một trong các cách (rồi kéo lại **Test**):\n\n' +
+          `• \`Branch: feature/<x>\` — nhánh đã \`push\`. Agent diff \`${baseBranch}...nhánh\`.\n` +
+          '• \`Branch: feature/<x>\` + \`Base: dev\` — khi đã **merge vào staging**, so với nhánh **CHƯA** chứa thay đổi (vd `dev`/`main`) để vẫn soi đúng.\n' +
+          '• \`Range: dev..staging\` (hoặc \`Commits: <sha-cũ>..staging\`) — review đúng dải commit đã vào staging.\n' +
+          '• \`Branch: staging\` + \`Since: <sha-trước-khi-sửa>\` — review từ commit đó tới đầu staging.\n\n' +
+          '_Lưu ý: nếu so trực tiếp với chính nhánh đã merge vào (vd `staging...staging`) thì diff sẽ rỗng — hãy so với nhánh chưa chứa thay đổi._');
         return;
       }
 
       TaskRepository.setStatus(task.id, 'testing');
       TaskRepository.heartbeat(task.id);
+
+      const what = spec.range
+        ? `dải \`${spec.range}\``
+        : `nhánh \`${spec.branch}\` so với \`${spec.base ?? baseBranch}\``;
       await TrelloClient.addComment(task.card_id,
-        `🧪 **[AI AGENT]** Đang review (chỉ-đọc) nhánh \`${branch}\` so với \`${baseBranch}\`.\n` +
+        `🧪 **[AI AGENT]** Đang review (chỉ-đọc) ${what}.\n` +
         'Sẽ kiểm: ✅ tiêu chí nghiệm thu · 🐞 bug logic / xử lý lỗi-null / edge case · ♻️ nguy cơ hồi quy · 🔒 bảo mật · 📐 quy ước (CLAUDE.md).\n' +
         'Nếu FAIL, mỗi lỗi sẽ kèm **`file:dòng`** + gợi ý sửa.').catch(() => {});
 
       const fresh = TaskRepository.findById(task.id)!;
-      const result = await ReviewAgent.reviewBranch(fresh, repoPath, branch, baseBranch);
+      const result = spec.range
+        ? await ReviewAgent.reviewRange(fresh, repoPath, spec.range)
+        : await ReviewAgent.reviewBranch(fresh, repoPath, spec.branch!, spec.base ?? baseBranch);
 
       if (result.verdict === 'PASS') {
         TaskRepository.setStatus(task.id, 'completed');
         await TrelloClient.addComment(task.card_id,
-          `✅ **[AI AGENT]** Review PASS nhánh \`${branch}\` (so với \`${baseBranch}\`). ` +
-          `Bạn có thể **merge \`${branch}\` vào \`${baseBranch}\`** (agent không tự merge).`);
+          `✅ **[AI AGENT]** Review PASS (${what}). Bạn có thể tiếp tục merge/promote (agent không tự merge).`);
       } else {
         TaskRepository.setStatus(task.id, 'review_failed');
         await TrelloClient.addComment(task.card_id,
-          `❌ **[AI AGENT]** Review FAIL nhánh \`${branch}\` — xem chi tiết vấn đề ở comment review phía trên. ` +
-          `Sửa trên nhánh, \`push\` lại rồi kéo lại **Test** (hoặc reply \`RETRY\`).`);
+          `❌ **[AI AGENT]** Review FAIL (${what}) — xem chi tiết vấn đề ở comment review phía trên. ` +
+          'Sửa rồi `push` lại, kéo lại **Test** (hoặc reply `RETRY`).');
       }
     } catch (err) {
       await OrchestratorAgent.handleError(task, err);
@@ -475,8 +483,16 @@ export const StageRouter = {
   },
 };
 
-/** Đọc `Branch: <tên-nhánh>` từ mô tả card (1 dòng riêng). Trả null nếu không có. */
-function parseReviewBranch(desc: string | null | undefined): string | null {
-  const m = (desc ?? '').match(/(?:^|\n)\s*Branch:\s*(\S+)/i);
-  return m ? m[1].trim() : null;
+interface ReviewSpec { branch?: string; base?: string; range?: string; }
+
+/** Đọc chỉ định review từ mô tả card: Branch/Base/Range|Commits/Since. */
+function parseReviewSpec(desc: string | null | undefined): ReviewSpec {
+  const d = desc ?? '';
+  const grab = (re: RegExp) => { const m = d.match(re); return m ? m[1].trim() : undefined; };
+  const branch = grab(/(?:^|\n)\s*Branch:\s*(\S+)/i);
+  const base = grab(/(?:^|\n)\s*Base:\s*(\S+)/i);
+  let range = grab(/(?:^|\n)\s*(?:Range|Commits):\s*(\S+)/i);
+  const since = grab(/(?:^|\n)\s*Since:\s*(\S+)/i);
+  if (!range && since && branch) range = `${since}..${branch}`;
+  return { branch, base, range };
 }

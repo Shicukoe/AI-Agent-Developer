@@ -130,13 +130,29 @@ export const TechnicalRefinerAgent = {
     let memory = await CardMemory.loadContext(task.card_id);
     const epicId = CardMemory.parseEpicId(card.desc);
     if (epicId) memory += await CardMemory.epicContext(epicId);
-    const cacheSummary = ProjectKnowledge.summary(repoPath, 3000);
+    const cacheSummary = await ProjectKnowledge.contextForTask(task, `${card.name}\n${card.desc ?? ''}`, 3000);
 
-    const tech = await LlmClient.runForJson<TechRefineResponse>(
-      buildTechPrompt(card, analystResp, memory, cacheSummary, repoPath),
-      config.MODEL_REFINE,
-      { allowedTools: ['Read', 'Glob', 'Grep'], cwd: repoPath, maxTurns: 15, label: `tech:${task.card_id.slice(0, 6)}` },
-    );
+    let tech: TechRefineResponse;
+    try {
+      tech = await LlmClient.runForJson<TechRefineResponse>(
+        buildTechPrompt(card, analystResp, memory, cacheSummary, repoPath),
+        config.MODEL_REFINE,
+        { allowedTools: ['Read', 'Glob', 'Grep'], cwd: repoPath, maxTurns: 15, timeoutMs: config.REFINE_TIMEOUT_MS, label: `tech:${task.card_id.slice(0, 6)}` },
+      );
+    } catch (err) {
+      // CLI không trả JSON → KHÔNG crash. Định tuyến sang Planning để lập kế hoạch đầy đủ (an toàn).
+      log.warn({ taskId: task.id, err: (err as Error).message }, 'Tech LLM không trả JSON — fallback → Planning');
+      tech = {
+        decision: 'design_solve',
+        kind: 'code',
+        standardized_description: `${analystResp.intent}\n\n${(analystResp.requirements ?? []).map(r => `- ${r}`).join('\n')}`,
+        field_details: [],
+        acceptance_criteria: analystResp.acceptance_criteria ?? [],
+        test_cases: [],
+        target_list: '',
+        reason: 'Fallback: Tech LLM không trả JSON, đưa sang Planning để lập kế hoạch.',
+      };
+    }
 
     // Ghi đè mô tả card: GỘP nghiệp vụ (BA) + kỹ thuật (Tech) + nghiệm thu (giữ yêu cầu gốc).
     const original = extractOriginal(card.desc ?? '');

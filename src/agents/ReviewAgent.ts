@@ -98,6 +98,20 @@ export const ReviewAgent = {
     return this.runReviewOnDiff(task, diff, acceptanceCriteria, attempt);
   },
 
+  /**
+   * Review một DẢI commit/range tuỳ ý (vd "dev...staging", "<sha>..staging", "a..b") — dùng khi code
+   * đã merge/push vào staging và cần soi đúng phần thay đổi. READ-ONLY (chỉ fetch + diff).
+   */
+  async reviewRange(task: Task, repoPath: string, expr: string, acceptanceCriteria: string[] = [], attempt: number = 1): Promise<ReviewResponse> {
+    log.info({ taskId: task.id, expr }, 'ReviewAgent starting (range mode)');
+    // Cập nhật ref liên quan (read-only, best-effort) để diff đúng trạng thái remote mới nhất.
+    const refs = expr.split(/\.{2,3}/).map(s => s.trim()).filter(s => s && !/^[0-9a-f]{7,40}$/i.test(s));
+    if (refs.length) await GitClient.fetch(repoPath, refs).catch(() => {});
+    let diff = '';
+    try { diff = await GitClient.getDiffExpr(repoPath, expr); } catch { diff = ''; }
+    return this.runReviewOnDiff(task, diff, acceptanceCriteria, attempt);
+  },
+
   /** Phần chung: nhận chuỗi diff → LLM review tĩnh → lưu kết quả + comment. */
   async runReviewOnDiff(task: Task, diff: string, acceptanceCriteria: string[], attempt: number): Promise<ReviewResponse> {
     if (!diff || diff.trim().length === 0) {

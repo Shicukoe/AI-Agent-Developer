@@ -49,13 +49,32 @@ export const BusinessAnalystAgent = {
     const repoPath = task.repo_path ?? config.GIT_REPO_PATH;
     const card = await TrelloClient.getCard(task.card_id);
     const memory = await CardMemory.loadContext(task.card_id);
-    const cacheSummary = ProjectKnowledge.summary(repoPath, 3000);
+    // Overview (tổng thể) + kiến trúc luồng LIÊN QUAN (chọn theo card) → đọc ít, tập trung đúng luồng.
+    const cacheSummary = await ProjectKnowledge.contextForTask(task, `${card.name}\n${card.desc ?? ''}`, 3000);
 
-    const analyst = await LlmClient.runForJson<AnalystResponse>(
-      buildBaPrompt(card, cacheSummary, memory, repoPath),
-      config.MODEL_REFINE,
-      { allowedTools: ['Read', 'Glob', 'Grep'], cwd: repoPath, maxTurns: 12, label: `ba:${task.card_id.slice(0, 6)}` },
-    );
+    let analyst: AnalystResponse;
+    try {
+      analyst = await LlmClient.runForJson<AnalystResponse>(
+        buildBaPrompt(card, cacheSummary, memory, repoPath),
+        config.MODEL_REFINE,
+        { allowedTools: ['Read', 'Glob', 'Grep'], cwd: repoPath, maxTurns: 12, timeoutMs: config.REFINE_TIMEOUT_MS, label: `ba:${task.card_id.slice(0, 6)}` },
+      );
+    } catch (err) {
+      // CLI thi thoảng chỉ "chào" rồi dừng (không trả JSON). KHÔNG để crash cả task — dùng phân tích
+      // tối thiểu từ card và chuyển sang bước KỸ THUẬT (Tech sẽ đọc code + làm spec thật).
+      log.warn({ taskId: task.id, err: (err as Error).message }, 'BA LLM không trả JSON — fallback phân tích từ card');
+      await CardMemory.post(task.card_id, 'Business Analysis (fallback)',
+        'BA không trả kết quả hợp lệ (Claude CLI thất thường) — dùng phân tích tối thiểu từ card, chuyển sang bước kỹ thuật.').catch(() => {});
+      return {
+        intent: card.name,
+        context: '',
+        requirements: [(card.desc ?? '').slice(0, 1500) || card.name],
+        acceptance_criteria: [],
+        open_questions: [],
+        confidence: 0.8,            // đủ cao để KHÔNG kẹt ở "chờ làm rõ" → đi tiếp Tech
+        business_subtasks: [],
+      };
+    }
 
     const nSub = (analyst.business_subtasks ?? []).length;
     await CardMemory.post(task.card_id, 'Business Analysis',

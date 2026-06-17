@@ -6,7 +6,7 @@ import { ProjectKnowledge, type Knowledge } from './ProjectKnowledge.js';
 const REPO = '/tmp/fake-repo';
 
 function fakeKnowledge(commit: string, ageDays = 0): Knowledge {
-  return { content: 'MAP', meta: { built_at_commit: commit, built_at: Date.now() - ageDays * 86_400_000, version: 1 } };
+  return { overview: 'MAP', meta: { built_at_commit: commit, built_at: Date.now() - ageDays * 86_400_000, version: 2, flows: [] } };
 }
 
 // Mock git: rev-parse → revHash, diff --name-only → list các file (1 file/dòng).

@@ -34,10 +34,14 @@ function createInfoCardDescription(): string {
     `Dùng khi bạn (dev) tự viết code, agent chỉ đóng vai **BA** (Refine) và **tester** (Test).\n\n` +
     `**Bước làm:**\n` +
     `1. (Tuỳ chọn) Kéo card sang **Refine** để agent chuẩn hoá yêu cầu + tiêu chí nghiệm thu.\n` +
-    `2. Tự tạo nhánh từ base branch của repo, đặt tên \`feature/<mô-tả-ngắn>\` (vd \`feature/form-tuyen-dung\`), code xong rồi \`git push\` lên origin. **Đừng merge vào \`dev\` trước khi review.**\n` +
-    `3. Thêm vào **mô tả card** một dòng riêng: \`Branch: feature/<mô-tả-ngắn>\` (đúng tên nhánh đã push).\n` +
-    `4. Kéo card sang **Test**. Agent review **chỉ-đọc** diff của nhánh so với base (không đụng \`dev\`, không tự merge).\n` +
-    `5. **PASS** → bạn tự merge nhánh vào base. **FAIL** → sửa trên nhánh, push lại, kéo lại **Test** (hoặc reply \`RETRY\`).\n\n` +
+    `2. Code xong, \`git push\`. Thêm vào **mô tả card** một dòng chỉ định phần cần review (chọn 1 cách):\n` +
+    `   • \`Branch: feature/<x>\` — review diff nhánh so với base branch của repo (khi CHƯA merge).\n` +
+    `   • \`Branch: feature/<x>\` + \`Base: dev\` — khi đã **merge vào staging**: so với nhánh **CHƯA chứa** thay đổi (vd \`dev\`/\`main\`) để vẫn soi đúng phần mới.\n` +
+    `   • \`Range: dev..staging\` hoặc \`Commits: <sha-cũ>..staging\` — review đúng dải commit đã vào staging.\n` +
+    `   • \`Branch: staging\` + \`Since: <sha-trước-khi-sửa>\` — review từ commit đó tới đầu staging.\n` +
+    `3. Kéo card sang **Test**. Agent review **chỉ-đọc** (chỉ \`fetch\`+\`diff\`, không đụng nhánh, không tự merge).\n` +
+    `4. **PASS** → bạn tự merge/promote. **FAIL** → sửa, push lại, kéo lại **Test** (hoặc reply \`RETRY\`).\n` +
+    `> ⚠️ Đừng so trực tiếp với chính nhánh đã merge vào (vd diff \`staging\` với \`staging\`) — sẽ rỗng. Luôn so với nhánh **chưa chứa** thay đổi.\n\n` +
     `**Agent sẽ kiểm (review tĩnh):** đối chiếu từng tiêu chí nghiệm thu · bug logic / thiếu xử lý lỗi-null / edge case · nguy cơ hồi quy · bảo mật · vi phạm quy ước (CLAUDE.md).\n` +
     `**Khi FAIL:** mỗi vấn đề ghi rõ **\`file:dòng\`** + mô tả + gợi ý sửa (xem comment review trên card) để bạn biết lỗi ở đâu.\n\n` +
     `Nếu bạn cần thay đổi yêu cầu hàng loạt, chỉnh nội dung thẻ này bằng cách sửa mô tả card.`

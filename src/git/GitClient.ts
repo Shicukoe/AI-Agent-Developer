@@ -41,6 +41,12 @@ export const GitClient = {
     await ShellExecutor.git(['fetch', 'origin', ...refs], repoPath);
   },
 
+  /** Diff theo biểu thức range tuỳ ý (vd "a..b", "dev...staging", "<sha>..staging"). */
+  async getDiffExpr(repoPath: string, expr: string): Promise<string> {
+    const { stdout } = await ShellExecutor.git(['diff', expr], repoPath);
+    return stdout;
+  },
+
   async getDiff(repoPath: string, base: string, head?: string): Promise<string> {
     const args = head
       ? ['diff', `${base}...${head}`]

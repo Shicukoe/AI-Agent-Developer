@@ -78,11 +78,11 @@ export const DocCardExecutor: Executor = {
     if (epicId) memoryContext += await CardMemory.epicContext(epicId);
 
     const repoPath = task.repo_path ?? config.GIT_REPO_PATH;
-    const cacheSummary = ProjectKnowledge.summary(repoPath, 3000);
+    const cacheSummary = await ProjectKnowledge.contextForTask(task, `${card.name}\n${card.desc ?? ''}`, 3000);
     const doc = await LlmClient.runForJson<DocResult>(
       buildPrompt(card.name, card.desc, memoryContext, cacheSummary, repoPath),
       config.MODEL_DEV,
-      { allowedTools: ['Read', 'Glob', 'Grep'], cwd: repoPath, maxTurns: 20, label: `doc:${task.card_id.slice(0, 6)}` },
+      { allowedTools: ['Read', 'Glob', 'Grep'], cwd: repoPath, maxTurns: 20, timeoutMs: config.REFINE_TIMEOUT_MS, label: `doc:${task.card_id.slice(0, 6)}` },
     );
 
     const title = (doc.card_title || `Tài liệu: ${card.name}`).slice(0, 200);

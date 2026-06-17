@@ -62,6 +62,10 @@ const schema = z.object({
   KNOWLEDGE_BUILD_TIMEOUT_MS: num(600000),
   // Số lượt tool tối đa cho indexer. Đọc CÓ CHỌN LỌC; quá nhiều lượt → ngữ cảnh phình → model timeout.
   KNOWLEDGE_BUILD_MAX_TURNS: num(18),
+  // Số luồng (flow) tối đa dựng kiến trúc chi tiết riêng cho 1 repo.
+  KNOWLEDGE_MAX_FLOWS: num(10),
+  // Số lượt tool tối đa khi dựng kiến trúc CHI TIẾT của 1 luồng (đọc tập trung file của luồng đó).
+  KNOWLEDGE_FLOW_MAX_TURNS: num(14),
   // Nhãn cho task "làm luôn" — ép fast-path thẳng Dev, bỏ refine/plan.
   TRELLO_QUICK_LABEL_NAME: z.string().default('quick'),
 
@@ -95,6 +99,8 @@ const schema = z.object({
   // Planning stage — thời gian tối đa cho 1 lần lập plan (ms) và số lượt tool tối đa
   PLANNING_TIMEOUT_MS: num(600000),
   PLANNING_MAX_TURNS: num(30),
+  // Refine (BA/Tech/DocCard) đọc code repo lớn có thể >180s → cho timeout rộng hơn (mặc định 5 phút).
+  REFINE_TIMEOUT_MS: num(300000),
 
   // Risk
   RISK_MAX_ACTIONS_PER_TASK: num(20),
