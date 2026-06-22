@@ -30,11 +30,28 @@ export interface ReviewIssue {
   suggestion?: string;
 }
 
+/** Trường hợp kiểm thử: điều kiện cần kiểm chứng (đầu vào → kết quả mong đợi). */
+export interface TestCase {
+  name: string;
+  description: string;
+  expected: string;
+}
+
 export interface ReviewResponse {
-  verdict: 'PASS' | 'FAIL';
+  /** PASS = đúng · FAIL = sai chắc chắn · NEEDS_INFO = chưa kết luận được (cần kiểm tra thêm). */
+  verdict: 'PASS' | 'FAIL' | 'NEEDS_INFO';
   issues: ReviewIssue[];
   conventions_check: boolean;
   summary: string;
+  /** Khi NEEDS_INFO: những thứ CẦN BIẾT / thao tác cần làm để kết luận đúng/sai (config, UI, flag, lệnh chạy…). */
+  checks_needed?: string[];
+  /** Mô tả NGẮN GỌN, dễ hiểu: đã test thế nào (đọc gì, kiểm chứng ra sao). */
+  how_tested?: string;
+  /**
+   * Checklist từng tiêu chí/trường hợp kiểm thử: ok=true (đạt) / false (lỗi) + ghi chú ngắn (kèm file:dòng + cách
+   * sửa nếu lỗi). manual=true: chỉ kiểm được khi CHẠY (UI) hoặc trong DATABASE — note nêu thao tác kiểm tay.
+   */
+  checklist?: Array<{ item: string; ok: boolean; manual?: boolean; note?: string }>;
 }
 
 export interface ParsedTask {
@@ -115,6 +132,10 @@ export interface AnalystResponse {
   confidence: number;                  // 0–1
   /** Khi yêu cầu lớn/đa tính năng → tách thành các đầu việc nghiệp vụ (mỗi cái → 1 card con). */
   business_subtasks: Array<{ title: string; description: string }>;
+  /** Dự án chưa có tài liệu (docs) → kết quả dựa trên card; nên chạy gen-docs. */
+  docs_missing?: boolean;
+  /** Định tuyến ở mức NGHIỆP VỤ (dùng khi KHÔNG bật BA kỹ thuật): trivial→Dev, design→Planning, epic→Epic. */
+  decision?: 'trivial_solve' | 'design_solve' | 'epic_solve';
 }
 
 /** Kết quả Technical Refiner: quyết định kỹ thuật sau khi nhận AnalystResponse. */

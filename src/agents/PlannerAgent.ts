@@ -3,7 +3,8 @@ import { join } from 'path';
 import { LlmClient } from '../claude/LlmClient.js';
 import { PromptBuilder } from '../claude/PromptBuilder.js';
 import { CardMemory } from './CardMemory.js';
-import { ProjectKnowledge } from './ProjectKnowledge.js';
+import { ProjectDocs } from './ProjectDocs.js';
+import { RepoRegistry } from '../repos/RepoRegistry.js';
 import { TrelloClient } from '../trello/TrelloClient.js';
 import { TaskRepository } from '../state/TaskRepository.js';
 import { getDb } from '../state/db.js';
@@ -90,7 +91,7 @@ export const PlannerAgent = {
     const epicId = CardMemory.parseEpicId(card.desc);
     if (epicId) memoryContext += await CardMemory.epicContext(epicId);
 
-    const cacheSummary = await ProjectKnowledge.contextForTask(task, `${card.name}\n${card.desc ?? ''}`, 4000);
+    const cacheSummary = ProjectDocs.guidance(repoPath, RepoRegistry.docsPathForTask(task));
     const plan = await LlmClient.runForJson<PlanResponse>(
       buildPlannerPrompt(card, codeContext + attachmentContext, repoPath, modifyInstruction, memoryContext, cacheSummary),
       config.MODEL_PLANNING,

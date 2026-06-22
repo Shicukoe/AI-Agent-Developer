@@ -5,7 +5,8 @@ import { PromptBuilder } from '../claude/PromptBuilder.js';
 import { TrelloClient } from '../trello/TrelloClient.js';
 import { TaskRepository } from '../state/TaskRepository.js';
 import { CardMemory } from './CardMemory.js';
-import { ProjectKnowledge } from './ProjectKnowledge.js';
+import { ProjectDocs } from './ProjectDocs.js';
+import { RepoRegistry } from '../repos/RepoRegistry.js';
 import { config } from '../config.js';
 import { childLogger } from '../utils/logger.js';
 import type { Task, TaskType } from '../state/TaskRepository.js';
@@ -53,6 +54,14 @@ ${memory}
 - "epic_solve": feature lớn nhiều phần việc → Epic.
 Phân loại \`kind\`: "code" (sửa/viết code) hoặc "doc_card" (sản phẩm là 1 card tài liệu, không đụng repo).
 \`standardized_description\`: markdown spec SẠCH (mục tiêu, yêu cầu chi tiết, field nếu có, tiêu chí nghiệm thu). KHÔNG thêm phần "Yêu cầu gốc".
+\`acceptance_criteria\` (kỹ thuật): mỗi tiêu chí là **ĐIỀU KIỆN kiểm chứng được** (đầu vào/tình huống →
+kết quả mong đợi), KHÔNG ràng buộc cách hiện thực — đủ rộng để mọi cách giải thoả điều kiện đều PASS.
+\`test_cases\`: các trường hợp cần kiểm thử (gồm cả happy-path, biên, lỗi); mỗi case nêu rõ \`expected\` quan
+sát được. Đây là thứ TESTER dùng để xác minh, nên viết cụ thể & độc lập với cách code.
+
+## NGẮN GỌN — quan trọng
+\`standardized_description\` viết để đọc hiểu trong **5–10 phút**: súc tích, gạch đầu dòng, đi thẳng vào
+việc cần làm. KHÔNG lan man/lặp lại/giải thích dài dòng. Bỏ đoạn văn thừa.
 
 NGÔN NGỮ: toàn bộ nội dung trả về bằng TIẾNG VIỆT; giữ nguyên tên file/biến/hàm/code.
 
@@ -90,6 +99,14 @@ function mergedAcceptance(analyst: AnalystResponse, tech: TechRefineResponse): s
   return out;
 }
 
+/** Trường hợp kiểm thử (do Tech sinh) → đưa vào mô tả card để tester & người dùng cùng thấy. */
+function testCasesBlock(tech: TechRefineResponse): string {
+  const tc = tech.test_cases ?? [];
+  if (!tc.length) return '';
+  const lines = tc.map((t, i) => `${i + 1}. **${t.name}** — ${t.description}\n   - Mong đợi: ${t.expected}`).join('\n');
+  return `\n## 🧪 Trường hợp kiểm thử\n${lines}\n`;
+}
+
 function businessBlock(analyst: AnalystResponse): string {
   const reqs = (analyst.requirements ?? []).map(r => `- ${r}`).join('\n');
   return `## 🎯 Yêu cầu nghiệp vụ\n**Mục tiêu:** ${analyst.intent || '—'}\n` +
@@ -106,6 +123,9 @@ ${tech.standardized_description?.trim() || '(không có)'}
 ${fieldDetailsBlock(tech)}
 ## ✅ Tiêu chí nghiệm thu
 ${ac}
+${testCasesBlock(tech)}
+## 🛠️ Ghi chú Dev (cách đã làm & hướng test)
+_(Dev điền sau khi code: đã sửa gì, vì sao, tester nên kiểm theo luồng nào — hoặc viết comment bắt đầu bằng \`DEV:\`)_
 
 ---
 ${ORIGINAL_MARKER}
@@ -116,7 +136,7 @@ ${original || '(trống)'}`;
 function specFull(analyst: AnalystResponse, tech: TechRefineResponse, cardName: string): string {
   const ac = mergedAcceptance(analyst, tech).map(c => `- ${c}`).join('\n') || '- —';
   return `# Spec: ${cardName}\n\n${businessBlock(analyst)}\n## 🔧 Yêu cầu kỹ thuật\n` +
-    `${tech.standardized_description?.trim() || '(không có)'}\n${fieldDetailsBlock(tech)}\n## ✅ Tiêu chí nghiệm thu\n${ac}\n`;
+    `${tech.standardized_description?.trim() || '(không có)'}\n${fieldDetailsBlock(tech)}\n## ✅ Tiêu chí nghiệm thu\n${ac}\n${testCasesBlock(tech)}`;
 }
 
 export const TechnicalRefinerAgent = {
@@ -130,7 +150,7 @@ export const TechnicalRefinerAgent = {
     let memory = await CardMemory.loadContext(task.card_id);
     const epicId = CardMemory.parseEpicId(card.desc);
     if (epicId) memory += await CardMemory.epicContext(epicId);
-    const cacheSummary = await ProjectKnowledge.contextForTask(task, `${card.name}\n${card.desc ?? ''}`, 3000);
+    const cacheSummary = ProjectDocs.guidance(repoPath, RepoRegistry.docsPathForTask(task));
 
     let tech: TechRefineResponse;
     try {
@@ -162,7 +182,13 @@ export const TechnicalRefinerAgent = {
 
     const kind = tech.kind ?? 'code';
     const targetList = (tech.target_list ?? '').trim();
-    TaskRepository.mergeMetadata(task.id, { kind, refine_decision: tech.decision, ...(targetList ? { doc_target_list: targetList } : {}) });
+    TaskRepository.mergeMetadata(task.id, {
+      kind, refine_decision: tech.decision,
+      // Lưu để stage Test đưa thẳng vào reviewer (đối chiếu từng điều kiện), khỏi parse lại mô tả card.
+      acceptance_criteria: mergedAcceptance(analystResp, tech),
+      test_cases: tech.test_cases ?? [],
+      ...(targetList ? { doc_target_list: targetList } : {}),
+    });
     await CardMemory.post(task.card_id, 'Technical Refine',
       `Quyết định kỹ thuật: **${tech.decision}** (kind=${kind}). ${tech.reason ?? ''}`).catch(() => {});
 

@@ -1,61 +1,67 @@
 # Trạng thái dự án & Handoff — AutoPilot Agent
 
-> Tài liệu để mở dự án này như một **workspace độc lập** (tách khỏi `target-repo`).
-> Đọc cùng [`../CLAUDE.md`](../CLAUDE.md) (quy ước + kiến trúc) — file đó tự nạp khi mở workspace.
+> Đọc cùng [`../CLAUDE.md`](../CLAUDE.md) (quy ước + kiến trúc tóm tắt) và
+> [`ARCHITECTURE.md`](ARCHITECTURE.md) (đào sâu từng hệ con).
 
 ## Đây là gì
-Hệ multi-agent chạy local, nhận task từ **Trello** → dùng **Claude CLI** phân tích/viết code/review →
-thực thi **git** trên một repo đích. Repo đích hiện tại: `target-repo` (cấu hình qua `.env`).
+Hệ multi-agent chạy local: nhận task từ **Trello** → dùng **Claude** (CLI hoặc API) phân tích / viết
+code / review → thao tác **git** trên repo đích. **Đa-repo**: 1 cài đặt phục vụ nhiều dự án, mỗi
+**board Trello = 1 repo** (cấu hình qua trang Admin).
 
-## Kiến trúc hiện tại (đã refactor sang luồng stage-list)
-Card được điều phối theo **list nó đang nằm** trên Trello; card phải có nhãn **`AI`** mới được xử lý.
+## Kiến trúc hiện tại (stage-list, đa-repo)
+Card điều phối theo **list nó đang nằm**; phải có nhãn **`AI`**. Repo của card xác định theo **board**.
 
 ```
-[Epic]     feature lớn → lập plan tổng → gắn "plan approve" → tự sinh N card con (link về epic)
-[Planning] 1 task → lập plan → gắn "plan approve"
-[Dev]      kéo card sang → code thẳng theo plan đã duyệt → "kéo sang Test"
-[Test]     kéo card sang → ReviewAgent review diff → PASS/FAIL
+TrelloConnector (poll/webhook, quét watchedBoardIds)
+ → StageRouter.dispatch → resolve repo theo board → TaskQueue.run
+   [Refine]   Triage (fast-path tí hon) → BusinessAnalyst → TechnicalRefiner (định tuyến)
+   [Epic]     PlannerAgent → "plan approve" → EpicManager sinh card con (integration branch)
+   [Planning] PlannerAgent → "plan approve"
+   [Dev]      DevAgent (hoặc executor theo kind) — worktree từ base branch của repo
+   [Test]     ReviewAgent — (a) review worktree  (b) review nhánh/range người tự code (auto-incremental)
 ```
-- Điều phối: `src/agents/StageRouter.ts` (thay vai trò pipeline cũ của `OrchestratorAgent`).
-- **Memory = comment Trello**: agent append comment `🧠 [AI MEMORY]` sau mỗi stage; khi chạy lại/
-  có yêu cầu mới thì nạp lại (`src/agents/CardMemory.ts`).
-- **Epic → card con**: `src/agents/EpicManager.ts` (sinh card con + checklist + tick tiến độ).
-- Agent trả lời **tiếng Việt**; queue concurrency mặc định **10**; Planning timeout/turns cấu hình
-  qua `.env` (`PLANNING_TIMEOUT_MS`, `PLANNING_MAX_TURNS`).
 
-> ⚠️ `docs/plan.md` là plan v1 (mô hình large/small + fan-out sub-task) — **đã lỗi thời**, giữ làm
-> tham khảo lịch sử. Trạng thái đúng là file này + CLAUDE.md.
+## Tính năng chính (đã làm trong các vòng gần đây)
+- **Đa-repo theo board** — `repos/RepoRegistry.ts`, bảng `repo_configs`, cấu hình qua **Admin → Repos**;
+  base branch theo từng repo (dev/staging/main). `watchedBoardIds` tự gồm board cấu hình qua admin.
+- **Refine pipeline** — Triage (fast-path + nhãn `quick`) → BusinessAnalyst (nghiệp vụ) → TechnicalRefiner
+  (kỹ thuật + định tuyến). Mô tả card cuối gồm 🎯 nghiệp vụ + 🔧 kỹ thuật + ✅ nghiệm thu + 📌 gốc.
+- **Project Knowledge đa-tầng** — `overview.md` + `flows/<key>.md`; mỗi task chỉ bơm overview + luồng
+  liên quan (chọn bằng 1 LLM rẻ, cache vào task). Dựng cache chạy NỀN, không chặn refine.
+- **Test = tester độc lập** — review worktree (Dev→Test) HOẶC review nhánh/range của code người tự viết
+  (`Branch/Base/Range/Since` + **auto-incremental** theo mốc commit `review_marks`).
+- **Admin backend** — dashboard task + cấu hình repo (`/admin`, token `ADMIN_API_TOKEN`).
+- **Độ bền** — `runForJson` retry tối đa 2; BA/Tech fallback chống crash; timeout cấu hình qua `.env`.
+
+> ⚠️ `docs/plan.md` là plan v1 (large/small + fan-out) **đã lỗi thời**. Trạng thái đúng = file này +
+> CLAUDE.md + ARCHITECTURE.md. `agents/RefineAgent.ts`, `agents/AnalystAgent.ts` là code chết.
 
 ## Mức kiểm thử
-- ✅ `npx tsc --noEmit` sạch.
-- ❌ **Chưa** test end-to-end với Trello thật (luồng stage/epic/memory cần chạy thực để xác nhận).
+- ✅ `npx tsc --noEmit` sạch · ✅ unit (vitest) 21/21 pass.
+- ⚠️ E2E Trello: chạy thực để xác nhận (đa-repo, refine pipeline, knowledge cache, tester modes).
+- ⚠️ Trên repo lớn, Claude **CLI** đôi khi timeout/thiếu-JSON → đã có retry + fallback; ổn định nhất là
+  đặt `ANTHROPIC_API_KEY` (các bước JSON đi API).
 
 ## Chạy
 ```bash
+cp .env.example .env   # TRELLO_*, GIT_REPO_PATH, GIT_WORKTREE_BASE, ADMIN_API_TOKEN, (ANTHROPIC_API_KEY tuỳ chọn)
 npm install
-npm run dev
+npm run dev            # cần đăng nhập Claude CLI, hoặc đặt ANTHROPIC_API_KEY
 ```
-Yêu cầu: đã đăng nhập **Claude CLI** (credentials ở `~/.claude`); board Trello có các list
-`Epic`/`Planning`/`Dev`/`Test` và nhãn `AI`, `plan approve`.
+- Mở **admin** `http://127.0.0.1:3457/admin` → tab **Repos** map `board id → repo path → base branch`.
+- Board cần list `Refine/Planning/Dev/Test/Epic` + nhãn `AI`, `plan approve`, `quick`.
+- Thẻ **Info** trên mỗi board tự sinh/cập nhật hướng dẫn (gồm cách dùng tester modes).
 
-## Lưu ý khi tách workspace (KHÔNG theo git — phải tự giữ)
-`.gitignore` bỏ qua các thứ sau, nên nếu **clone/sao chép sang nơi khác** chúng sẽ không đi theo:
-- **`.env`** — chứa secret (Trello key/token) + `GIT_REPO_PATH`. **Phải copy thủ công.**
-  - `GIT_REPO_PATH` đang trỏ về `target-repo` (đúng — đây là repo đích agent thao tác). Giữ nguyên
-    trừ khi muốn đổi repo đích.
-  - `GIT_WORKTREE_BASE=D:\Coding_Stuffs\agent-worktrees` (ngoài thư mục này).
-- **`data/agent.db`** (SQLite) — lưu **trạng thái task đang chạy**. Giữ lại nếu muốn liền mạch; bỏ đi
-  là khởi động sạch.
-- **`node_modules/`** — chạy lại `npm install`.
+## Tách workspace / di chuyển máy (KHÔNG theo git — tự giữ)
+`.gitignore` bỏ qua:
+- **`.env`** — secret + `GIT_REPO_PATH`/`GIT_WORKTREE_BASE` + `ADMIN_API_TOKEN`. Copy thủ công.
+- **`data/agent.db`** (SQLite) — trạng thái task + cấu hình repo (`repo_configs`) + mốc review
+  (`review_marks`). Giữ để liền mạch; xoá là khởi động sạch (phải cấu hình lại repo).
+- **`data/knowledge/`** — cache hiểu dự án (dựng lại được).
+- **`node_modules/`** — `npm install` lại.
 
-Nếu chỉ **mở đúng thư mục này** làm workspace mới (không di chuyển file) thì `.env` và `data/` vẫn
-nằm nguyên — không mất gì.
+> Lưu ý đa-repo: `repo_path` trong admin là đường dẫn **trên máy chạy agent**. Khi đổi máy, clone lại
+> repo và cập nhật path trong admin cho khớp.
 
 ## Git
-Thư mục **chưa phải repo git** (`.gitignore` đã sẵn sàng). Để quản lý độc lập: `git init` rồi commit
-(các file nhạy cảm đã được ignore sẵn).
-
-## Bộ nhớ Claude (auto-memory)
-Ghi chú auto-memory về dự án này hiện nằm ở project `target-repo`, **sẽ không tự nạp** ở workspace
-mới. Kiến thức cốt lõi đã nằm trong CLAUDE.md + file này (đi theo repo). Khi mở workspace mới, có thể
-nhờ Claude tạo lại memory cho project đó.
+Thư mục chưa phải repo git (`.gitignore` sẵn sàng). Quản lý độc lập: `git init` rồi commit (secret đã ignore).

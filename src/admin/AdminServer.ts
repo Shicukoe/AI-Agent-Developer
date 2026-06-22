@@ -8,6 +8,7 @@ import { childLogger } from '../utils/logger.js';
 import { requireAdminToken } from './auth.js';
 import { tasksRouter } from './routes/tasks.js';
 import { reposRouter } from './routes/repos.js';
+import type { WorkerRegistry } from '../supervisor/WorkerRegistry.js';
 
 const log = childLogger('admin-server');
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -29,12 +30,13 @@ export class AdminServer {
   private app = express();
   private server: Server | null = null;
 
-  constructor() {
+  constructor(registry: WorkerRegistry) {
     this.app.use(express.json());
 
     // API có bảo vệ token. Đặt TRƯỚC static để mọi /admin/api/* đều qua auth.
-    this.app.use('/admin/api', requireAdminToken, tasksRouter());
-    this.app.use('/admin/api', requireAdminToken, reposRouter());
+    // Lệnh task chạy ở worker (qua registry/IPC); CRUD repo gọi registry.reconcile().
+    this.app.use('/admin/api', requireAdminToken, tasksRouter(registry));
+    this.app.use('/admin/api', requireAdminToken, reposRouter(registry));
 
     // UI tĩnh từ template WinDOORS đã nhúng.
     const publicDir = resolvePublicDir();

@@ -4,9 +4,11 @@ import { existsSync } from 'fs';
 import { join } from 'path';
 import { RepoConfigRepository } from '../../state/RepoConfigRepository.js';
 import { TrelloClient } from '../../trello/TrelloClient.js';
-import { ProjectKnowledge } from '../../agents/ProjectKnowledge.js';
+import { BoardProvisioner } from '../../trello/BoardProvisioner.js';
+import { generateDocs } from '../../scripts/gen-docs.js';
 import { config } from '../../config.js';
 import { childLogger } from '../../utils/logger.js';
+import type { WorkerRegistry } from '../../supervisor/WorkerRegistry.js';
 
 const log = childLogger('admin-repos');
 
@@ -27,7 +29,7 @@ function validateRepoPath(repoPath: string): string | null {
   return null;
 }
 
-export function reposRouter(): Router {
+export function reposRouter(registry: WorkerRegistry): Router {
   const router = Router();
 
   // Danh sách cấu hình repo theo board.
@@ -48,7 +50,7 @@ export function reposRouter(): Router {
 
   // Tạo cấu hình repo cho 1 board.
   router.post('/repos', wrap(async (req, res) => {
-    const { board_id, name, repo_path, base_branch, enabled } = req.body ?? {};
+    const { board_id, name, repo_path, base_branch, enabled, docs_path } = req.body ?? {};
     if (!board_id || !name || !repo_path) {
       res.status(400).json({ error: 'Cần board_id, name, repo_path.' }); return;
     }
@@ -62,19 +64,35 @@ export function reposRouter(): Router {
       board_id: String(board_id), name: String(name), repo_path: String(repo_path),
       base_branch: base_branch ? String(base_branch) : undefined,
       enabled: enabled === false ? false : true,
+      docs_path: docs_path ? String(docs_path) : undefined,
     });
     log.info({ boardId: row.board_id, repoPath: row.repo_path }, 'Repo config created');
-    // Prewarm cache hiểu dự án NGAY (chạy nền) để các luồng sau dùng — không chặn response.
-    void ProjectKnowledge.ensureFresh(row.repo_path, row.base_branch).catch(err =>
-      log.warn({ repoPath: row.repo_path, err: (err as Error).message }, 'Prewarm cache nền lỗi — bỏ qua'));
-    res.json({ ok: true, item: row });
+    registry.reconcile();   // spawn worker cho dự án mới
+
+    // Tự chuẩn bị board: tạo list stage + label điều khiển còn thiếu (khỏi tạo tay). Lỗi Trello KHÔNG chặn tạo repo.
+    let provision: Awaited<ReturnType<typeof BoardProvisioner.provision>> | { error: string };
+    try {
+      provision = await BoardProvisioner.provision(row.board_id);
+    } catch (err) {
+      provision = { error: err instanceof Error ? err.message : 'Không provision được board' };
+      log.warn({ boardId: row.board_id, err }, 'Provision board lỗi (bỏ qua, có thể tạo thủ công)');
+    }
+    res.json({ ok: true, item: row, provision });
+  }));
+
+  // Chuẩn bị lại board thủ công (tạo list/label còn thiếu) cho 1 repo đã cấu hình.
+  router.post('/repos/:id/provision', wrap(async (req, res) => {
+    const cfg = RepoConfigRepository.getById(String(req.params.id));
+    if (!cfg) { res.status(404).json({ error: 'Cấu hình không tồn tại.' }); return; }
+    const provision = await BoardProvisioner.provision(cfg.board_id);
+    res.json({ ok: true, provision });
   }));
 
   // Sửa cấu hình repo.
   router.put('/repos/:id', wrap(async (req, res) => {
     const existing = RepoConfigRepository.getById(String(req.params.id));
     if (!existing) { res.status(404).json({ error: 'Cấu hình không tồn tại.' }); return; }
-    const { name, repo_path, base_branch, enabled } = req.body ?? {};
+    const { name, repo_path, base_branch, enabled, docs_path } = req.body ?? {};
     if (repo_path !== undefined) {
       const pathErr = validateRepoPath(String(repo_path));
       if (pathErr) { res.status(400).json({ error: pathErr }); return; }
@@ -84,8 +102,21 @@ export function reposRouter(): Router {
     if (repo_path !== undefined) patch.repo_path = String(repo_path);
     if (base_branch !== undefined) patch.base_branch = String(base_branch);
     if (enabled !== undefined) patch.enabled = enabled ? 1 : 0;
+    if (docs_path !== undefined) patch.docs_path = String(docs_path).trim() || null;
     RepoConfigRepository.update(existing.id, patch);
+    registry.reconcile();   // restart worker nếu repo/branch/docs/enabled đổi
     res.json({ ok: true, item: RepoConfigRepository.getById(existing.id) });
+  }));
+
+  // Sinh tài liệu dự án (gen-docs) cho repo — chạy NỀN (việc nặng), người review + commit docs sau.
+  router.post('/repos/:id/gen-docs', wrap(async (req, res) => {
+    const cfg = RepoConfigRepository.getById(String(req.params.id));
+    if (!cfg) { res.status(404).json({ error: 'Cấu hình không tồn tại.' }); return; }
+    const docsPath = cfg.docs_path?.trim() || join(cfg.repo_path, 'docs');
+    void generateDocs(cfg.repo_path, docsPath).catch(err =>
+      log.error({ repoPath: cfg.repo_path, err: (err as Error).message }, 'gen-docs nền lỗi'));
+    log.info({ repoPath: cfg.repo_path, docsPath }, 'gen-docs nền: bắt đầu');
+    res.json({ ok: true, message: `Đang sinh tài liệu nền vào ${docsPath}. Xem log; xong thì review + commit.` });
   }));
 
   // Xoá cấu hình repo.
@@ -93,6 +124,7 @@ export function reposRouter(): Router {
     const existing = RepoConfigRepository.getById(String(req.params.id));
     if (!existing) { res.status(404).json({ error: 'Cấu hình không tồn tại.' }); return; }
     RepoConfigRepository.remove(existing.id);
+    registry.reconcile();   // dừng worker của dự án đã xoá
     log.info({ id: existing.id, boardId: existing.board_id }, 'Repo config deleted');
     res.json({ ok: true });
   }));

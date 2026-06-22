@@ -6,6 +6,7 @@ import { TaskRepository } from '../state/TaskRepository.js';
 import { config } from '../config.js';
 import { childLogger } from '../utils/logger.js';
 import { WorktreeError } from '../utils/errors.js';
+import { withKeyedLock } from '../utils/keyedMutex.js';
 
 const log = childLogger('worktree');
 
@@ -15,13 +16,31 @@ function worktreePath(taskId: string): string {
   return join(config.GIT_WORKTREE_BASE, safe);
 }
 
+/** Lõi xoá worktree — KHÔNG tự khóa (để add/remove ở trên gọi mà không deadlock). */
+async function doRemove(taskId: string, rp: string): Promise<void> {
+  const path = worktreePath(taskId);
+  try {
+    await ShellExecutor.git(['worktree', 'remove', '--force', path], rp);
+  } catch {
+    if (existsSync(path)) rmSync(path, { recursive: true, force: true });
+    await ShellExecutor.git(['worktree', 'prune'], rp).catch(() => {});
+  }
+  log.info({ taskId, path }, 'Worktree removed');
+  GitOperationRepository.log(taskId, 'worktree_remove', { output: path });
+}
+
 export const WorktreeManager = {
   async add(taskId: string, repoPath: string, branchName: string, fromBranch: string): Promise<string> {
+    // Khóa theo repo: tránh nhiều `worktree add`/`fetch` đồng thời trên cùng repo đụng index/worktree lock.
+    return withKeyedLock(repoPath, () => this._add(taskId, repoPath, branchName, fromBranch));
+  },
+
+  async _add(taskId: string, repoPath: string, branchName: string, fromBranch: string): Promise<string> {
     const path = worktreePath(taskId);
 
     if (existsSync(path)) {
       log.warn({ path }, 'Worktree path already exists, removing first');
-      await this.remove(taskId, repoPath).catch(() => {});
+      await doRemove(taskId, repoPath).catch(() => {});
     }
 
     mkdirSync(config.GIT_WORKTREE_BASE, { recursive: true });
@@ -66,23 +85,9 @@ export const WorktreeManager = {
   },
 
   async remove(taskId: string, repoPath?: string): Promise<void> {
-    const path = worktreePath(taskId);
     // Caller dead-man switch không truyền repoPath → tra lại repo của task, fallback global.
     const rp = repoPath ?? TaskRepository.findById(taskId)?.repo_path ?? config.GIT_REPO_PATH;
-
-    try {
-      await ShellExecutor.git(['worktree', 'remove', '--force', path], rp);
-    } catch {
-      // If git worktree remove fails, forcibly delete the directory
-      if (existsSync(path)) {
-        rmSync(path, { recursive: true, force: true });
-      }
-      // Prune stale worktree refs
-      await ShellExecutor.git(['worktree', 'prune'], rp).catch(() => {});
-    }
-
-    log.info({ taskId, path }, 'Worktree removed');
-    GitOperationRepository.log(taskId, 'worktree_remove', { output: path });
+    await withKeyedLock(rp, () => doRemove(taskId, rp));
   },
 
   getPath(taskId: string): string {

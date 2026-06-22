@@ -1,6 +1,5 @@
 import { LlmClient } from '../claude/LlmClient.js';
 import { RuleEngine } from '../rules/RuleEngine.js';
-import { ProjectKnowledge } from './ProjectKnowledge.js';
 import { config, hasQuickLabel } from '../config.js';
 import { childLogger } from '../utils/logger.js';
 import type { TrelloCard } from '../trello/types.js';
@@ -56,12 +55,10 @@ export const TriageAgent = {
       return { trivial: true, source: 'rule', reason: 'Rule: trivial rõ ràng', spec: card.desc || card.name };
     }
 
-    // 4) Mơ hồ → 1 LLM call RẺ (chỉ text card + tóm tắt cache, KHÔNG đọc repo).
+    // 4) Mơ hồ → 1 LLM call RẺ (chỉ text card, KHÔNG đọc repo/docs để giữ rẻ).
     try {
-      const summary = ProjectKnowledge.summary(repoPath, 1500);
       const prompt =
         `${buildCardText(card)}\n\n` +
-        (summary ? `Bối cảnh dự án (tóm tắt):\n${summary}\n\n` : '') +
         `Task này có "tí hon, làm-ngay-được" không?`;
       const res = await LlmClient.runForJson<{ trivial: boolean; reason?: string; spec?: string }>(
         `${SYSTEM}\n\n${prompt}`,

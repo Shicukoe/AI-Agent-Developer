@@ -75,6 +75,8 @@ export interface ClaudeCliOpts {
   timeoutMs?: number;
   maxTurns?: number;
   label?: string;
+  /** Truyền vào --model (vd 'opus'/'sonnet' hoặc id đầy đủ). Trống = model mặc định của CLI. */
+  model?: string;
   /** Gọi mỗi khi có hoạt động (dòng output) — dùng để heartbeat task. */
   onActivity?: () => void;
 }
@@ -97,33 +99,47 @@ export const ClaudeCliClient = {
       args.push('--allowedTools', opts.allowedTools.join(','));
     }
 
+    if (opts?.model && opts.model.trim()) {
+      args.push('--model', opts.model.trim());
+    }
+
     log.debug({ cwd: opts?.cwd, tools: opts?.allowedTools }, 'Spawning Claude CLI');
     const tag = `[claude${opts?.label ? ':' + opts.label : ''}]`;
-    const handler = makeStreamHandler(tag, opts?.label, opts?.onActivity);
+    // `result` event = CLI đã xong việc. Claude CLI đôi khi KHÔNG tự thoát sau đó (treo tới timeout) →
+    // nhận event này thì kết thúc ngay + kill tiến trình, tránh chờ vô ích / timeout sai.
+    let resolveDone: (() => void) | null = null;
+    const doneEvent = new Promise<'done'>(resolve => { resolveDone = () => resolve('done'); });
+    const handler = makeStreamHandler(tag, opts?.label, opts?.onActivity, () => resolveDone?.());
+
+    // Strip ANTHROPIC_API_KEY so Claude CLI uses its own stored credentials (~/.claude)
+    const { ANTHROPIC_API_KEY: _unused, ...cleanEnv } = process.env;
+    const proc = execa(claudeExe, args, {
+      cwd: opts?.cwd ?? config.GIT_REPO_PATH,
+      timeout: timeoutMs,
+      input: prompt,
+      env: cleanEnv,
+    });
+    proc.stdout?.on('data', (c: Buffer) => handler.feed(c.toString()));
+    proc.stderr?.on('data', (c: Buffer) => {
+      if (config.AGENT_VERBOSE) streamToConsole(c.toString(), tag, true);
+    });
 
     try {
-      // Strip ANTHROPIC_API_KEY so Claude CLI uses its own stored credentials (~/.claude)
-      const { ANTHROPIC_API_KEY: _unused, ...cleanEnv } = process.env;
-      const proc = execa(claudeExe, args, {
-        cwd: opts?.cwd ?? config.GIT_REPO_PATH,
-        timeout: timeoutMs,
-        input: prompt,
-        env: cleanEnv,
-      });
-      proc.stdout?.on('data', (c: Buffer) => handler.feed(c.toString()));
-      proc.stderr?.on('data', (c: Buffer) => {
-        if (config.AGENT_VERBOSE) streamToConsole(c.toString(), tag, true);
-      });
-      await proc;
+      const outcome = await Promise.race([proc.then(() => 'exit' as const), doneEvent]);
       handler.flush();
+      if (outcome === 'done') {
+        // CLI báo xong nhưng có thể còn treo → kill, nuốt lỗi do kill gây ra.
+        proc.kill();
+        proc.catch(() => { /* ignore: ta đã chủ động kill sau khi có kết quả */ });
+      }
       return handler.result();
     } catch (err: unknown) {
       handler.flush();
       const e = err as { stderr?: string; exitCode?: number; timedOut?: boolean };
-      if (e.timedOut) throw new Error(`Claude CLI timed out after ${timeoutMs}ms`);
-      // Non-zero exit can still have produced a valid result event
+      // Lỗi/timeout NHƯNG đã có kết quả (event result tới trước khi crash) → vẫn dùng được.
       const partial = handler.result();
       if (partial) return partial;
+      if (e.timedOut) throw new Error(`Claude CLI timed out after ${timeoutMs}ms`);
       throw new Error(`Claude CLI error (exit ${e.exitCode}): ${e.stderr?.slice(0, 300) ?? 'unknown'}`);
     }
   },

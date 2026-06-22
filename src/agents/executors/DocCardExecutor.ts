@@ -2,7 +2,8 @@ import { LlmClient } from '../../claude/LlmClient.js';
 import { TrelloClient } from '../../trello/TrelloClient.js';
 import { TaskRepository } from '../../state/TaskRepository.js';
 import { CardMemory } from '../CardMemory.js';
-import { ProjectKnowledge } from '../ProjectKnowledge.js';
+import { ProjectDocs } from '../ProjectDocs.js';
+import { RepoRegistry } from '../../repos/RepoRegistry.js';
 import { config } from '../../config.js';
 import { childLogger } from '../../utils/logger.js';
 import type { Task } from '../../state/TaskRepository.js';
@@ -78,7 +79,7 @@ export const DocCardExecutor: Executor = {
     if (epicId) memoryContext += await CardMemory.epicContext(epicId);
 
     const repoPath = task.repo_path ?? config.GIT_REPO_PATH;
-    const cacheSummary = await ProjectKnowledge.contextForTask(task, `${card.name}\n${card.desc ?? ''}`, 3000);
+    const cacheSummary = ProjectDocs.guidance(repoPath, RepoRegistry.docsPathForTask(task));
     const doc = await LlmClient.runForJson<DocResult>(
       buildPrompt(card.name, card.desc, memoryContext, cacheSummary, repoPath),
       config.MODEL_DEV,

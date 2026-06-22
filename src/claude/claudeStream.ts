@@ -20,7 +20,7 @@ function printLines(text: string, tag: string, isErr = false): void {
   }
 }
 
-export function makeStreamHandler(tag: string, label?: string, onActivity?: () => void): StreamHandler {
+export function makeStreamHandler(tag: string, label?: string, onActivity?: () => void, onDone?: () => void): StreamHandler {
   let buffer = '';
   let finalText = '';
   let collected = '';
@@ -48,6 +48,7 @@ export function makeStreamHandler(tag: string, label?: string, onActivity?: () =
         const output = u.output_tokens ?? 0;
         TokenTracker.record(label, input, output, ev.total_cost_usd ?? 0);
       }
+      onDone?.();   // CLI đã xong (event result) → cho phép caller kết thúc ngay, không chờ tiến trình tự thoát (hay treo)
     }
   };
 

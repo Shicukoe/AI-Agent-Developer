@@ -116,6 +116,15 @@ CREATE TABLE IF NOT EXISTS poller_state (
   last_poll_at      INTEGER
 );
 
+-- Mốc commit đã review trên một nhánh (auto-incremental: lần sau chỉ review phần mới).
+CREATE TABLE IF NOT EXISTS review_marks (
+  repo_key     TEXT NOT NULL,
+  branch       TEXT NOT NULL,
+  last_commit  TEXT NOT NULL,
+  updated_at   INTEGER NOT NULL,
+  PRIMARY KEY (repo_key, branch)
+);
+
 -- Cấu hình repo theo board (đa-repo, cấu hình qua admin). 1 board = 1 repo.
 CREATE TABLE IF NOT EXISTS repo_configs (
   id           TEXT PRIMARY KEY,
@@ -125,5 +134,6 @@ CREATE TABLE IF NOT EXISTS repo_configs (
   base_branch  TEXT NOT NULL DEFAULT 'dev',
   enabled      INTEGER NOT NULL DEFAULT 1,
   created_at   INTEGER NOT NULL,
-  updated_at   INTEGER NOT NULL
+  updated_at   INTEGER NOT NULL,
+  docs_path    TEXT             -- thư mục tài liệu dự án (mặc định <repo>/docs)
 );

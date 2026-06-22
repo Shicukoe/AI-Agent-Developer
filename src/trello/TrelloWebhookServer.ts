@@ -58,7 +58,8 @@ function parseAction(action: TrelloAction): TrelloEvent | null {
 export class TrelloWebhookServer extends EventEmitter {
   private app = express();
 
-  constructor() {
+  /** @param _boardIds (đa-process) — webhook nhận mọi event; lọc theo board nếu cần ở tương lai. */
+  constructor(private _boardIds?: string[]) {
     super();
     this.app.use(express.json({ verify: (req: any, _res, buf) => { req.rawBody = buf.toString(); } }));
     this.app.head(config.WEBHOOK_PATH, (_req, res) => res.sendStatus(200));

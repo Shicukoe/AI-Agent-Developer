@@ -11,6 +11,7 @@ export interface RepoConfig {
   enabled: number; // 0 | 1 (SQLite không có boolean)
   created_at: number;
   updated_at: number;
+  docs_path: string | null;   // thư mục tài liệu (mặc định <repo>/docs nếu null)
 }
 
 export interface RepoConfigInput {
@@ -19,6 +20,7 @@ export interface RepoConfigInput {
   repo_path: string;
   base_branch?: string;
   enabled?: boolean;
+  docs_path?: string;
 }
 
 export const RepoConfigRepository = {
@@ -49,9 +51,10 @@ export const RepoConfigRepository = {
       enabled: input.enabled === false ? 0 : 1,
       created_at: now,
       updated_at: now,
+      docs_path: input.docs_path?.trim() || null,
     };
     getDb().prepare(`INSERT INTO repo_configs VALUES (
-      @id, @board_id, @name, @repo_path, @base_branch, @enabled, @created_at, @updated_at
+      @id, @board_id, @name, @repo_path, @base_branch, @enabled, @created_at, @updated_at, @docs_path
     )`).run(row);
     return row;
   },

@@ -234,6 +234,8 @@ export const LlmClient = {
     timeoutMs?: number;
     maxTurns?: number;
     label?: string;
+    /** Override model id (API) / --model (CLI) cho riêng call này. Trống = model mặc định của provider. */
+    model?: string;
   }): Promise<string> {
     const cwd = opts?.cwd ?? config.GIT_REPO_PATH;
     const maxTurns = opts?.maxTurns ?? 10;
@@ -248,7 +250,7 @@ export const LlmClient = {
         return ClaudeCliClient.run(prompt, opts);
       }
       
-      const model = config.CLAUDE_MODEL;
+      const model = opts?.model ?? config.CLAUDE_MODEL;
       const messages: any[] = [{ role: 'user', content: prompt }];
       let turn = 0;
 
@@ -350,7 +352,7 @@ export const LlmClient = {
       if (!apiKey) {
         throw new Error('GEMINI_API_KEY is not configured in .env');
       }
-      const model = config.GEMINI_MODEL;
+      const model = opts?.model ?? config.GEMINI_MODEL;
       const messages: any[] = [{ role: 'user', content: prompt }];
       let turn = 0;
 
@@ -462,7 +464,7 @@ export const LlmClient = {
       if (!apiKey) {
         throw new Error('OPENAI_API_KEY is not configured in .env');
       }
-      const model = config.OPENAI_MODEL;
+      const model = opts?.model ?? config.OPENAI_MODEL;
       const baseUrl = config.OPENAI_BASE_URL;
       const messages: any[] = [{ role: 'user', content: prompt }];
       let turn = 0;
@@ -556,6 +558,7 @@ export const LlmClient = {
     timeoutMs?: number;
     maxTurns?: number;
     label?: string;
+    model?: string;
   }): Promise<T> {
     // Lần 1 đã siết để model engage + chỉ trả JSON (tránh kiểu "chào rồi dừng") → thường đậu ngay 1 lần.
     const jsonPrompt = `${prompt}\n\n---\n` +

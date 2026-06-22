@@ -14,13 +14,14 @@ function repoContext(provider: LlmProvider = 'gemini', repoPath: string = config
   // Khối CLAUDE.md (đầy đủ hoặc ghi chú ngắn tuỳ provider) — xem conventions.ts.
   let ctx = conventionsBlock(provider, repoPath);
 
-  // Overview KHÔNG được Claude Code auto-load (không phải CLAUDE.md) nên vẫn inject. Bọc sentinel
-  // để optimizeFirstMessage cắt được ở các lượt sau của vòng lặp gemini/openai.
-  const overview = join(repoPath, 'cons_weekly_report', 'docs', '00_TONG_THE.md');
+  // Overview docs (tài liệu thật) — inject 00_TONG_THE.md từ thư mục docs của repo (mặc định <repo>/docs).
+  // Bọc sentinel để optimizeFirstMessage cắt được ở các lượt sau của vòng lặp gemini/openai.
+  const docsDir = config.PROJECT_DOCS_PATH?.trim() || join(repoPath, 'docs');
+  const overview = join(docsDir, '00_TONG_THE.md');
   if (existsSync(overview)) {
-    ctx += `\n\n<!--AUTOPILOT_OVERVIEW_START-->\n## Project Overview (from docs/00_TONG_THE.md)\n${readFileSync(overview, 'utf8')}` +
-      `\n\n> Đây chỉ là tổng quan. Trước khi sửa code, hãy đọc tài liệu màn hình/lĩnh vực liên quan` +
-      ` (xem bảng "Bản đồ tài liệu" trong CLAUDE.md) bằng tool Read.\n<!--AUTOPILOT_OVERVIEW_END-->`;
+    ctx += `\n\n<!--AUTOPILOT_OVERVIEW_START-->\n## Tổng thể dự án (từ docs/00_TONG_THE.md)\n${readFileSync(overview, 'utf8')}` +
+      `\n\n> Đây chỉ là tổng quan. Trước khi làm, đọc tài liệu chức năng liên quan trong docs/` +
+      ` (xem 00_BAN_DO_TAI_LIEU.md) bằng tool Read.\n<!--AUTOPILOT_OVERVIEW_END-->`;
   }
 
   return ctx;

@@ -5,10 +5,9 @@ import type { TaskStatus } from '../../state/TaskRepository.js';
 import { GitOperationRepository } from '../../state/GitOperationRepository.js';
 import { getDb } from '../../state/db.js';
 import { TrelloClient } from '../../trello/TrelloClient.js';
-import { StageRouter } from '../../agents/StageRouter.js';
-import { WorktreeManager } from '../../git/WorktreeManager.js';
-import { config, stageForListName } from '../../config.js';
+import { config } from '../../config.js';
 import { childLogger } from '../../utils/logger.js';
+import type { WorkerRegistry } from '../../supervisor/WorkerRegistry.js';
 
 const log = childLogger('admin-tasks');
 
@@ -38,8 +37,17 @@ interface ReviewRow {
   issues: string | null; summary: string | null; reviewed_at: number;
 }
 
-export function tasksRouter(): Router {
+export function tasksRouter(registry: WorkerRegistry): Router {
   const router = Router();
+
+  // Gửi lệnh tới worker (qua IPC) rồi map kết quả → HTTP.
+  const sendCmd = async (res: Response, repoKey: string, cmd: 'rerun' | 'modify' | 'cancel', taskId: string, payload?: { instruction?: string }): Promise<void> => {
+    const r = await registry.sendCommand(repoKey, cmd, taskId, payload);
+    if (r.ok) { res.json({ ok: true, ...(r.data && typeof r.data === 'object' ? r.data : {}) }); return; }
+    const code = r.code ?? 'error';
+    const status = code === 'in_flight' ? 409 : code === 'not_found' ? 404 : code === 'bad_request' ? 400 : code === 'no_worker' ? 503 : code === 'timeout' ? 504 : 500;
+    res.status(status).json({ error: r.error ?? 'Lỗi thực thi' });
+  };
 
   // Thống kê cho dashboard: tổng + gom theo status + số task "có vấn đề".
   router.get('/stats', wrap(async (_req, res) => {
@@ -96,27 +104,11 @@ export function tasksRouter(): Router {
     res.json({ task, gitOps, reviews, comments });
   }));
 
-  // Chạy lại task ở ĐÚNG stage hiện tại của card (kéo card = chuyển stage, ở đây ta tự suy ra).
+  // Chạy lại task ở ĐÚNG stage hiện tại của card — worker thực thi (có ngữ cảnh repo).
   router.post('/tasks/:id/rerun', wrap(async (req, res) => {
     const task = TaskRepository.findById(String(req.params.id));
     if (!task) { res.status(404).json({ error: 'Task không tồn tại' }); return; }
-    if (IN_FLIGHT.has(task.status)) {
-      res.status(409).json({ error: `Task đang chạy (${task.status}), không thể chạy lại lúc này.` });
-      return;
-    }
-
-    const card = await TrelloClient.getCard(task.card_id);
-    const lists = await TrelloClient.getLists(card.idBoard);
-    const list = lists.find(l => l.id === card.idList);
-    const stage = list ? stageForListName(list.name) : null;
-    if (!stage) {
-      res.status(400).json({ error: 'Card hiện không nằm trong list stage nào (Refine/Planning/Dev/Test/Epic).' });
-      return;
-    }
-
-    StageRouter.dispatch(stage, card, card.idList);
-    log.info({ taskId: task.id, stage }, 'Admin rerun dispatched');
-    res.json({ ok: true, stage });
+    await sendCmd(res, task.repo_key || 'default', 'rerun', task.id);
   }));
 
   // Bổ sung thông tin: đẩy comment lên card để agent nạp lại khi chạy lại (cơ chế CardMemory).
@@ -135,29 +127,17 @@ export function tasksRouter(): Router {
   router.post('/tasks/:id/modify', wrap(async (req, res) => {
     const task = TaskRepository.findById(String(req.params.id));
     if (!task) { res.status(404).json({ error: 'Task không tồn tại' }); return; }
-    if (IN_FLIGHT.has(task.status)) {
-      res.status(409).json({ error: `Task đang chạy (${task.status}), không thể lập lại kế hoạch lúc này.` });
-      return;
-    }
     const instruction = typeof req.body?.instruction === 'string' ? req.body.instruction.trim() : '';
     await TrelloClient.addComment(task.card_id,
       `👤 **[ADMIN]** Lập lại kế hoạch${instruction ? ` theo yêu cầu:\n> ${instruction}` : '.'}`).catch(() => {});
-    // Chạy nền (runPlanning tự enqueue/handle lỗi) — không chờ để response nhanh.
-    void StageRouter.runPlanning(task, instruction || undefined);
-    log.info({ taskId: task.id }, 'Admin modify/re-plan dispatched');
-    res.json({ ok: true });
+    await sendCmd(res, task.repo_key || 'default', 'modify', task.id, { instruction });
   }));
 
-  // Hủy task: đánh dấu failed, dọn worktree, báo lên card.
+  // Hủy task — worker dọn worktree (có ngữ cảnh repo).
   router.post('/tasks/:id/cancel', wrap(async (req, res) => {
     const task = TaskRepository.findById(String(req.params.id));
     if (!task) { res.status(404).json({ error: 'Task không tồn tại' }); return; }
-
-    TaskRepository.setStatus(task.id, 'failed', { error_message: 'Hủy bởi admin (backend)' });
-    if (task.worktree_path) await WorktreeManager.remove(task.id).catch(() => {});
-    await TrelloClient.addComment(task.card_id, '❌ **[ADMIN]** Task đã bị hủy từ admin backend.').catch(() => {});
-    log.info({ taskId: task.id }, 'Admin cancelled task');
-    res.json({ ok: true });
+    await sendCmd(res, task.repo_key || 'default', 'cancel', task.id);
   }));
 
   return router;

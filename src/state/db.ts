@@ -34,17 +34,22 @@ export function getDb(): Database.Database {
  * nên với DB cũ ta tự `ALTER TABLE ADD COLUMN` cho các cột còn thiếu (SQLite cho phép ADD COLUMN nullable).
  */
 function migrate(db: Database.Database): void {
-  const cols = (db.prepare('PRAGMA table_info(tasks)').all() as Array<{ name: string }>).map(c => c.name);
-  const needed: Array<{ name: string; ddl: string }> = [
+  const addColumns = (table: string, needed: Array<{ name: string; ddl: string }>): void => {
+    const cols = (db.prepare(`PRAGMA table_info(${table})`).all() as Array<{ name: string }>).map(c => c.name);
+    for (const c of needed) {
+      if (!cols.includes(c.name)) {
+        try { db.exec(c.ddl); log.info({ table, column: c.name }, 'Migrated: added column'); }
+        catch (err) { log.warn({ table, column: c.name, err: (err as Error).message }, 'Migration ADD COLUMN lỗi'); }
+      }
+    }
+  };
+  addColumns('tasks', [
     { name: 'repo_key', ddl: 'ALTER TABLE tasks ADD COLUMN repo_key TEXT' },
     { name: 'repo_path', ddl: 'ALTER TABLE tasks ADD COLUMN repo_path TEXT' },
-  ];
-  for (const c of needed) {
-    if (!cols.includes(c.name)) {
-      try { db.exec(c.ddl); log.info({ column: c.name }, 'Migrated: added tasks column'); }
-      catch (err) { log.warn({ column: c.name, err: (err as Error).message }, 'Migration ADD COLUMN lỗi'); }
-    }
-  }
+  ]);
+  addColumns('repo_configs', [
+    { name: 'docs_path', ddl: 'ALTER TABLE repo_configs ADD COLUMN docs_path TEXT' },
+  ]);
 }
 
 export function closeDb(): void {

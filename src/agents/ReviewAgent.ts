@@ -1,14 +1,17 @@
 import { randomUUID } from 'crypto';
+import { join, relative } from 'path';
 import { LlmClient } from '../claude/LlmClient.js';
 import { PromptBuilder } from '../claude/PromptBuilder.js';
 import { GitClient } from '../git/GitClient.js';
 import { TrelloClient } from '../trello/TrelloClient.js';
 import { getDb } from '../state/db.js';
 import { RepoConfigRepository } from '../state/RepoConfigRepository.js';
+import { RepoRegistry } from '../repos/RepoRegistry.js';
+import { ProjectDocs } from './ProjectDocs.js';
 import { config } from '../config.js';
 import { childLogger } from '../utils/logger.js';
 import type { Task } from '../state/TaskRepository.js';
-import type { ReviewResponse } from '../claude/types.js';
+import type { ReviewResponse, TestCase } from '../claude/types.js';
 
 const log = childLogger('review-agent');
 
@@ -23,47 +26,149 @@ function parseChildBase(metadata: string | null): string | null {
   }
 }
 
-function buildReviewPrompt(diff: string, taskDescription: string, acceptanceCriteria: string[]): string {
-  const base = PromptBuilder.reviewer(diff, taskDescription, acceptanceCriteria, config.MODEL_TEST)
+/** Trích "Ghi chú Dev" (cách đã làm & hướng test) từ mô tả card. Bỏ nếu trống/chỉ còn placeholder. */
+function extractDevNote(desc: string | null | undefined): string {
+  const d = (desc ?? '').replace(/\r/g, '');
+  const m = d.match(/##\s*🛠️?\s*Ghi chú Dev[^\n]*\n([\s\S]*?)(?=\n##\s|\n---|$)/i);
+  if (!m) return '';
+  const body = m[1].split('\n').filter(l => !/^\s*_\(.*\)_\s*$/.test(l)).join('\n').trim();
+  return body;
+}
+
+/** Dev có thể ghi chú bằng COMMENT bắt đầu bằng: `DEV:`, `[DEV]`, `Ghi chú Dev:`, `Hướng test:`. */
+const DEV_COMMENT_RE = /^\s*(?:\[?\s*dev\s*\]?|dev note|ghi chú dev|hướng test)\s*[:\-]\s*/i;
+function extractDevNoteFromComments(comments: Array<{ text: string }>): string {
+  return comments
+    .map(c => (c.text ?? '').replace(/\r/g, '').trim())
+    .filter(t => DEV_COMMENT_RE.test(t))
+    .map(t => t.replace(DEV_COMMENT_RE, '').trim())
+    .filter(Boolean)
+    .join('\n');
+}
+
+function testCasesBlock(testCases: TestCase[]): string {
+  if (!testCases.length) return '';
+  const lines = testCases
+    .map((t, i) => `${i + 1}. **${t.name}** — ${t.description}\n   - Kết quả mong đợi: ${t.expected}`)
+    .join('\n');
+  return `\n## Trường hợp kiểm thử cần kiểm chứng\n${lines}\n`;
+}
+
+function devNoteBlock(devNote: string): string {
+  if (!devNote.trim()) return '';
+  return `\n## 📌 Ghi chú từ Dev — cách đã làm & hướng test (ƯU TIÊN CAO)
+${devNote}
+
+Dev đã giải thích cách hiện thực + luồng muốn tester kiểm. Hãy **test THEO hướng này**. Nếu cách dev làm
+khác spec mà đạt mục tiêu → HỢP LỆ. Nếu ghi chú này mâu thuẫn với spec → ưu tiên ghi chú Dev cho phần
+"cách làm", còn mục tiêu vẫn theo 🎯/✅; phân vân thì NEEDS_INFO.\n`;
+}
+
+function buildReviewPrompt(
+  diff: string,
+  taskDescription: string,
+  acceptanceCriteria: string[],
+  testCases: TestCase[],
+  devNote: string,
+  docsGuidance: string,
+  repoForContext: string,
+): string {
+  const base = PromptBuilder.reviewer(diff, taskDescription, acceptanceCriteria, config.MODEL_TEST, repoForContext)
     .replace(/\nRespond via.*$/s, '');
 
   return `${base}
+${devNoteBlock(devNote)}${testCasesBlock(testCases)}
+## Làm NHANH & TIẾT KIỆM — đọc DOCS trước, đừng dò lan man
+${docsGuidance}
+- ĐỌC tài liệu dự án (docs) để định hướng NHANH (luồng nào, file nào) TRƯỚC khi grep. Docs là tri thức đã
+  có sẵn — TÁI DÙNG để khỏi dò lại từ đầu mỗi lần test.
+- Chỉ đào sâu code ở phần **liên quan trực tiếp** tới thay đổi (diff) + tiêu chí. KHÔNG quét/grep toàn repo.
+- Đủ hiểu để kết luận thì **DỪNG NGAY** và xuất JSON. Có giới hạn lượt tool — đừng tìm vô hạn.
+- **BẮT BUỘC** kết thúc câu trả lời bằng DUY NHẤT khối JSON kết quả (kể cả khi chưa chắc → \`NEEDS_INFO\`).
+  TUYỆT ĐỐI không kết thúc bằng một lượt tool dang dở (sẽ bị coi là thất bại và phải chạy lại tốn kém).
 
-## Vai trò: TESTER / QA độc lập (review nghiêm khắc)
-Bạn thay cho một tester thật. Hãy soi kỹ — KHÔNG nể nang:
-- Đối chiếu TỪNG tiêu chí nghiệm thu ở trên: tiêu chí nào diff CHƯA đáp ứng → liệt kê là issue \`error\`.
-- Tìm bug logic, thiếu xử lý lỗi/null, off-by-one, rò rỉ, hardcode, thiếu validate input.
-- Edge case & hồi quy: thay đổi này có làm hỏng chức năng cũ / phá vỡ giao diện/dữ liệu không?
-- Bảo mật rõ ràng (lộ secret, injection) và vi phạm convention dự án (CLAUDE.md).
-- Chỉ \`PASS\` khi đáp ứng ĐỦ tiêu chí nghiệm thu và không còn issue mức \`error\`. Còn nghi ngờ → \`FAIL\` kèm lý do cụ thể (file:line) để người sửa.
+## Vai trò: TESTER / QA độc lập — XÁC MINH, KHÔNG đoán
+Bạn đang ở thư mục mã nguồn (cwd) và CÓ tool **Read / Glob / Grep**. Diff ở trên chỉ là điểm bắt đầu —
+KHÔNG được kết luận chỉ dựa vào diff. Hãy:
+1. **MỞ các file bị sửa + code/cấu hình liên quan** (hàm gọi tới, model/route/template, file config) để HIỂU
+   logic thực sự, rồi kiểm chứng từng tiêu chí nghiệm thu & trường hợp kiểm thử có **đúng** không.
+2. Cảnh giác: một luồng code có thể "nuốt" lỗi mà vẫn chạy (try/catch rỗng, trả mặc định, điều kiện sai
+   vẫn ra kết quả hợp lệ) → đọc kỹ để biết nó xử lý ĐÚNG hay chỉ **che** lỗi.
+3. Tìm bug logic, thiếu xử lý null/lỗi, off-by-one, rò rỉ, hardcode, thiếu validate, lộ secret/injection,
+   vi phạm convention (CLAUDE.md), và hồi quy (phá vỡ chức năng/giao diện/dữ liệu cũ).
 
-NGÔN NGỮ: Viết "summary", "description", "suggestion" bằng TIẾNG VIỆT. Giữ nguyên tên file/biến/hàm/code.
+## "Chưa cấu hình" CHƯA chắc là sai
+Có những thứ KHÔNG quan sát được từ code tĩnh: giá trị config/biến môi trường thực tế, dữ liệu, hành vi
+runtime, hay UI khi chạy. **ĐỪNG** kết luận FAIL chỉ vì "chưa thấy config" hay "chưa thấy chạy thử".
+
+## Chấm theo MỤC TIÊU, KHÔNG theo cách làm đã gợi ý
+Ưu tiên **🎯 yêu cầu nghiệp vụ + ✅ tiêu chí nghiệm thu** (kết quả người dùng cần). Phần 🔧 yêu cầu kỹ thuật
+nếu mô tả MỘT CÁCH LÀM cụ thể ("uncomment dòng X", "dùng field Y", "sửa hàm Z") chỉ là **gợi ý**, KHÔNG phải
+ràng buộc cứng. Dev chọn cách KHÁC (đặt tên field khác, computed field, refactor…) mà **vẫn đạt mục tiêu** →
+HỢP LỆ, tuyệt đối đừng bắt lỗi chỉ vì "khác spec". Chỉ khi cách đó làm SAI mục tiêu mới tính là lỗi.
+- KHÔNG chắc cách dev chọn có đạt mục tiêu không (vd field computed có thực sự lưu \`store=True\` & hiển thị
+  đúng không; phụ thuộc runtime/dữ liệu) → **NEEDS_INFO** + \`checks_needed\` (cần xác nhận/chạy thử gì), KHÔNG FAIL.
+- Spec và code LỆCH nhau nhưng cả hai đều có thể đúng → **NEEDS_INFO**: nêu rõ "xác nhận chủ đích: dùng cách
+  của spec hay cách dev đã làm; nếu giữ cách dev thì cập nhật lại yêu cầu/tiêu chí cho khớp".
+- Ngay cả ✅ tiêu chí nghiệm thu nếu được viết dưới dạng MỘT CÁCH LÀM ("uncomment dòng X") thì hãy đọc ra
+  Ý ĐỊNH thật sau nó (kết quả người dùng cần) và chấm theo ý định đó, không bắt bẻ câu chữ.
+- **Tie-break:** khi phân vân giữa FAIL và NEEDS_INFO → CHỌN **NEEDS_INFO**. Chỉ FAIL khi CHẮC CHẮN mục tiêu
+  không đạt. Mục tiêu suy ra từ **🎯 yêu cầu nghiệp vụ + 📌 yêu cầu gốc** của card (đọc kỹ phần này trước).
+
+## Phán quyết (verdict)
+- **PASS**: đã kiểm chứng được code ĐÁP ỨNG đủ tiêu chí nghiệm thu + trường hợp kiểm thử, không còn issue \`error\`.
+- **FAIL**: CHỈ khi chứng minh được **MỤC TIÊU không đạt** — chỉ ra vi phạm CỤ THỂ (kèm \`file:line\`) làm sai
+  kết quả/hành vi mong đợi. Dev làm khác cách spec gợi ý mà vẫn đạt mục tiêu thì KHÔNG phải FAIL.
+- **NEEDS_INFO**: chỉ khi KHÔNG thể suy ra đúng/sai TỪ CODE — kết quả phụ thuộc GIÁ TRỊ config/biến môi trường
+  thực, DỮ LIỆU thật trong DB, HỆ THỐNG NGOÀI, hay hành vi runtime mà source không cho biết (KHÔNG phải cứ
+  "chạy trên UI" là NEEDS_INFO — nếu code path xác minh được thì vẫn PASS/FAIL).
+  Khi đó BẮT BUỘC điền \`checks_needed\`: liệt kê CỤ THỂ cần biết gì / kiểm tra gì TRƯỚC khi sửa, hoặc thao
+  tác thủ công nào để xác nhận — ví dụ: "kiểm tra biến môi trường X đã set chưa", "mở màn <Y> nhập <Z> xem
+  kết quả", "xác nhận cờ tính năng W bật", "chạy <lệnh> rồi đối chiếu". Tuyệt đối KHÔNG đoán bừa PASS/FAIL.
+
+## Báo cáo cho người đọc (NGẮN GỌN + checklist)
+- \`how_tested\`: 1–3 câu **dễ hiểu** mô tả bạn đã test thế nào (đọc file/luồng nào, kiểm chứng ra sao) — viết cho cả người không rành code.
+- \`checklist\`: LIỆT KÊ **từng tiêu chí nghiệm thu + từng trường hợp kiểm thử** → mỗi mục
+  \`{ "item": "<tên ngắn>", "ok": true/false, "manual": true/false, "note": "..." }\`:
+  - Đạt: \`ok:true\`.
+  - Lỗi: \`ok:false\` + \`note\` nêu **\`file:dòng\` + cách sửa**.
+
+### Tiêu chí thể hiện trên UI/DB — VẪN chấm qua CODE PATH (đừng đổ hết về NEEDS_INFO)
+Phần lớn tiêu chí (lưu dữ liệu, hiển thị, gửi mail, phân quyền…) tuy BIỂU HIỆN ở UI/DB nhưng ĐƯỢC QUYẾT ĐỊNH
+bởi code. Hãy **truy vết đường đi của code** thực thi tiêu chí (vd: ô nhập → handler/onchange → ghi field/ORM
+\`write\` → field có \`store\`; hay: dữ liệu → template/QWeb → hiển thị):
+- Đường đi ĐẦY ĐỦ & ĐÚNG → \`ok:true\` (PASS). Được phép note "(xác minh qua code; nên smoke test nhanh)" nhưng **KHÔNG** hạ NEEDS_INFO.
+- Mắt xích SAI/THIẾU → \`ok:false\` + \`file:dòng\` + cách sửa.
+- Chỉ đặt \`manual:true\` (và verdict NEEDS_INFO) khi kết quả **KHÔNG do code trong repo quyết định**: phụ thuộc
+  GIÁ TRỊ config/biến môi trường thực, DỮ LIỆU thật trong DB, HỆ THỐNG NGOÀI, hay hành vi runtime mà source
+  không cho biết. Khi đó \`note\` = thao tác kiểm cụ thể (mở màn/route nào, query bảng/field nào) và đưa vào \`checks_needed\`.
+- **ĐỪNG** đánh \`manual\`/NEEDS_INFO chỉ vì "tính năng chạy trên UI" — nếu code path xác minh được thì kết luận PASS/FAIL bình thường.
+
+NGÔN NGỮ: "how_tested", "summary", "description", "suggestion", "checks_needed", "checklist.item/note" bằng TIẾNG VIỆT. Giữ nguyên tên file/biến/hàm/code.
 
 ## Required JSON response schema
-Return a JSON code block with this exact structure:
+Kết thúc bằng DUY NHẤT một khối JSON:
 \`\`\`json
 {
   "verdict": "PASS",
-  "issues": [
-    {
-      "file": "path/to/file.ts",
-      "line": 42,
-      "severity": "error|warning|info",
-      "description": "what is wrong",
-      "suggestion": "how to fix"
-    }
+  "how_tested": "ngắn gọn đã test thế nào",
+  "checklist": [
+    { "item": "tên tiêu chí/trường hợp", "ok": true, "manual": false, "note": "" }
   ],
+  "issues": [
+    { "file": "path/to/file.ts", "line": 42, "severity": "error|warning|info", "description": "sai chỗ nào", "suggestion": "cách sửa" }
+  ],
+  "checks_needed": [],
   "conventions_check": true,
-  "summary": "2-3 sentence review summary"
+  "summary": "tóm tắt 2-3 câu: đã đọc gì, kiểm chứng được gì, vì sao verdict như vậy"
 }
 \`\`\`
-
-verdict MUST be "PASS" or "FAIL". Empty issues array means no problems found.`;
+verdict PHẢI là "PASS" | "FAIL" | "NEEDS_INFO". issues rỗng = không tìm thấy vấn đề. checks_needed chỉ điền khi NEEDS_INFO.`;
 }
 
 export const ReviewAgent = {
-  /** Review worktree do chính agent tạo (luồng Dev → Test): diff worktree vs base. */
-  async review(task: Task, acceptanceCriteria: string[], attempt: number = 1): Promise<ReviewResponse> {
+  /** Review worktree do chính agent tạo (luồng Dev → Test): diff worktree vs base; đọc code trong worktree để xác minh. */
+  async review(task: Task, acceptanceCriteria: string[] = [], testCases: TestCase[] = [], attempt: number = 1): Promise<ReviewResponse> {
     log.info({ taskId: task.id, branch: task.branch_name, attempt }, 'ReviewAgent starting (worktree)');
 
     const worktreePath = task.worktree_path!;
@@ -78,42 +183,76 @@ export const ReviewAgent = {
     } catch {
       diff = await GitClient.getDiff(worktreePath, 'HEAD~1').catch(() => '(no diff available)');
     }
-    return this.runReviewOnDiff(task, diff, acceptanceCriteria, attempt);
+    // cwd = worktree (đọc đúng code đã thay đổi); context overview + docs lấy từ repo gốc.
+    const repoForContext = task.repo_path ?? config.GIT_REPO_PATH;
+    const docsGuidance = ProjectDocs.guidance(repoForContext, RepoRegistry.docsPathForTask(task));
+    return this.runReviewOnDiff(task, diff, acceptanceCriteria, testCases, attempt, worktreePath, repoForContext, docsGuidance);
   },
 
   /**
-   * Review nhánh do NGƯỜI tự code (không qua Dev của agent): so diff `base...branch` trong repo,
-   * READ-ONLY (chỉ fetch + diff, KHÔNG đụng base branch). Dùng cho luồng "agent làm tester".
+   * Review READ-ONLY theo một biểu thức diff git (vd "origin/dev...origin/staging", "<sha>..origin/x").
+   * Caller (StageRouter) tự `fetch` các ref trước. Nếu ref `origin/...` không có → thử ref local.
+   * Reviewer đọc code trong repo (cwd = repoPath, nhánh hiện hành) để xác minh, không chỉ đọc diff.
    */
-  async reviewBranch(task: Task, repoPath: string, branch: string, baseBranch: string, acceptanceCriteria: string[] = [], attempt: number = 1): Promise<ReviewResponse> {
-    log.info({ taskId: task.id, branch, baseBranch }, 'ReviewAgent starting (branch mode)');
-    // Cập nhật ref (read-only). Lỗi (không remote/quyền) → thử ref local bên dưới.
-    await GitClient.fetch(repoPath, [baseBranch, branch]).catch(() => {});
-    let diff = '';
-    try {
-      diff = await GitClient.getDiff(repoPath, `origin/${baseBranch}`, `origin/${branch}`);
-    } catch {
-      try { diff = await GitClient.getDiff(repoPath, baseBranch, branch); } catch { diff = ''; }
+  async reviewExpr(task: Task, repoPath: string, expr: string, acceptanceCriteria: string[] = [], testCases: TestCase[] = [], attempt: number = 1): Promise<ReviewResponse> {
+    log.info({ taskId: task.id, expr }, 'ReviewAgent starting (expr mode)');
+    // Chuẩn hoá ref: nhánh chỉ có trên remote (vd `NgocLuan2`) → `origin/NgocLuan2` (nếu không diff sẽ lỗi/rỗng).
+    const sep = expr.match(/\.{3}|\.{2}/)?.[0] ?? '..';
+    const parts = expr.split(/\.{2,3}/).map(s => s.trim()).filter(Boolean);
+    let normExpr = expr;
+    let targetRef = (parts[parts.length - 1] ?? expr).trim();
+    if (parts.length === 2) {
+      const [a, b] = await Promise.all([GitClient.resolveRef(repoPath, parts[0]), GitClient.resolveRef(repoPath, parts[1])]);
+      normExpr = `${a}${sep}${b}`;
+      targetRef = b;
+    } else if (parts.length === 1) {
+      targetRef = await GitClient.resolveRef(repoPath, parts[0]);
+      normExpr = targetRef;
     }
-    return this.runReviewOnDiff(task, diff, acceptanceCriteria, attempt);
+
+    let diff = '';
+    try { diff = await GitClient.getDiffExpr(repoPath, normExpr); } catch { diff = ''; }
+
+    // Diff rỗng (sai dải / chưa push / range không chứa thay đổi) → KHÔNG cần worktree, FAIL "diff rỗng" ngay.
+    if (!diff.trim()) {
+      const docsGuidance = ProjectDocs.guidance(repoPath, RepoRegistry.docsPathForTask(task));
+      return this.runReviewOnDiff(task, diff, acceptanceCriteria, testCases, attempt, repoPath, repoPath, docsGuidance);
+    }
+
+    // BẮT ĐÚNG THAY ĐỔI: đọc code TẠI REF ĐÍCH của dải qua worktree tạm detached (không lệ thuộc nhánh đang checkout).
+    let reviewCwd = repoPath;
+    let tmpWorktree: string | null = null;
+    try {
+      tmpWorktree = await GitClient.addDetachedWorktree(repoPath, targetRef);
+      if (tmpWorktree) reviewCwd = tmpWorktree;
+      else log.warn({ taskId: task.id, targetRef }, 'Không tạo được worktree review tại ref — đọc code ở working tree hiện tại (có thể lệch nhánh)');
+
+      // docs theo đường dẫn TƯƠNG ỨNG trong worktree (docs commit ở ref đó); ngoài repo thì giữ tuyệt đối.
+      const docsAbs = RepoRegistry.docsPathForTask(task);
+      const rel = relative(repoPath, docsAbs);
+      const docsForReview = rel && !rel.startsWith('..') ? join(reviewCwd, rel) : docsAbs;
+      const docsGuidance = ProjectDocs.guidance(reviewCwd, docsForReview);
+
+      return await this.runReviewOnDiff(task, diff, acceptanceCriteria, testCases, attempt, reviewCwd, repoPath, docsGuidance);
+    } finally {
+      if (tmpWorktree) await GitClient.removeWorktreePath(repoPath, tmpWorktree).catch(() => {});
+    }
   },
 
   /**
-   * Review một DẢI commit/range tuỳ ý (vd "dev...staging", "<sha>..staging", "a..b") — dùng khi code
-   * đã merge/push vào staging và cần soi đúng phần thay đổi. READ-ONLY (chỉ fetch + diff).
+   * Phần chung: diff + tiêu chí + test_cases → reviewer ĐỌC code thật (Read/Glob/Grep tại cwd) bằng MODEL NẶNG
+   * (REVIEW_MODEL) → verdict PASS/FAIL/NEEDS_INFO → lưu + comment.
    */
-  async reviewRange(task: Task, repoPath: string, expr: string, acceptanceCriteria: string[] = [], attempt: number = 1): Promise<ReviewResponse> {
-    log.info({ taskId: task.id, expr }, 'ReviewAgent starting (range mode)');
-    // Cập nhật ref liên quan (read-only, best-effort) để diff đúng trạng thái remote mới nhất.
-    const refs = expr.split(/\.{2,3}/).map(s => s.trim()).filter(s => s && !/^[0-9a-f]{7,40}$/i.test(s));
-    if (refs.length) await GitClient.fetch(repoPath, refs).catch(() => {});
-    let diff = '';
-    try { diff = await GitClient.getDiffExpr(repoPath, expr); } catch { diff = ''; }
-    return this.runReviewOnDiff(task, diff, acceptanceCriteria, attempt);
-  },
-
-  /** Phần chung: nhận chuỗi diff → LLM review tĩnh → lưu kết quả + comment. */
-  async runReviewOnDiff(task: Task, diff: string, acceptanceCriteria: string[], attempt: number): Promise<ReviewResponse> {
+  async runReviewOnDiff(
+    task: Task,
+    diff: string,
+    acceptanceCriteria: string[],
+    testCases: TestCase[],
+    attempt: number,
+    cwd: string,
+    repoForContext: string,
+    docsGuidance: string = '',
+  ): Promise<ReviewResponse> {
     if (!diff || diff.trim().length === 0) {
       const result: ReviewResponse = {
         verdict: 'FAIL',
@@ -128,15 +267,22 @@ export const ReviewAgent = {
 
     const card = await TrelloClient.getCard(task.card_id);
     const taskDescription = `${card.name}\n\n${card.desc}`;
+    // Ghi chú Dev: gộp từ mục trong mô tả card + comment có tiền tố (DEV:/Hướng test:…).
+    const comments = await TrelloClient.getCardComments(task.card_id).catch(() => [] as Array<{ text: string }>);
+    const devNote = [extractDevNote(card.desc), extractDevNoteFromComments(comments)].filter(Boolean).join('\n\n');
 
     let result: ReviewResponse;
     try {
       result = await LlmClient.runForJson<ReviewResponse>(
-        buildReviewPrompt(diff, taskDescription, acceptanceCriteria),
+        buildReviewPrompt(diff, taskDescription, acceptanceCriteria, testCases, devNote, docsGuidance, repoForContext),
         config.MODEL_TEST,
         {
-          // No file tools — diff is provided in prompt, review is independent
-          maxTurns: 8,
+          // Reviewer ĐỌC code thật để xác minh → bật tool + cwd repo + model nặng + nhiều lượt/timeout rộng.
+          allowedTools: ['Read', 'Glob', 'Grep'],
+          cwd,
+          model: config.REVIEW_MODEL,
+          maxTurns: config.REVIEW_MAX_TURNS,
+          timeoutMs: config.REVIEW_TIMEOUT_MS,
           label: `review:${task.card_id.slice(0, 6)}`,
         }
       );
@@ -162,17 +308,27 @@ export const ReviewAgent = {
   },
 
   async postReviewComment(task: Task, result: ReviewResponse): Promise<void> {
-    const icon = result.verdict === 'PASS' ? '✅' : '❌';
-    const issueLines = result.issues
-      .map(i =>
-        `- **${i.severity.toUpperCase()}** \`${i.file}${i.line ? `:${i.line}` : ''}\`: ${i.description}${i.suggestion ? ` → ${i.suggestion}` : ''}`
-      )
+    const icon = result.verdict === 'PASS' ? '✅' : result.verdict === 'NEEDS_INFO' ? '❓' : '❌';
+    // Checklist gọn: ✅ đạt → [x]; ❌ lỗi → [ ] (note kèm file:dòng+cách sửa); ⏳ cần kiểm tay (UI/DB) → [ ] ⏳.
+    const checklistLines = (result.checklist ?? [])
+      .map(c => {
+        const box = c.ok ? 'x' : ' ';
+        const tag = c.manual ? ' ⏳' : '';
+        return `- [${box}]${tag} ${c.item}${c.note ? ` — ${c.note}` : ''}`;
+      })
       .join('\n');
+    const checkNeededLines = (result.checks_needed ?? []).map(c => `- ${c}`).join('\n');
+
+    // Fallback nếu LLM không trả checklist (vd diff rỗng / lỗi) → dùng issues cho gọn.
+    const issuesFallback = (!checklistLines && result.issues.length)
+      ? result.issues.map(i => `- [ ] ${i.file ? `\`${i.file}${i.line ? `:${i.line}` : ''}\`: ` : ''}${i.description}${i.suggestion ? ` → ${i.suggestion}` : ''}`).join('\n')
+      : '';
 
     const comment =
-      `${icon} **[AI AGENT - CODE REVIEW] ${result.verdict}**\n\n${result.summary}` +
-      (result.issues.length > 0 ? `\n\n**Issues found:**\n${issueLines}` : '') +
-      `\n\n*Conventions check: ${result.conventions_check ? '✅ passed' : '❌ failed'}*`;
+      `${icon} **[AI TEST] ${result.verdict}**` +
+      (result.how_tested ? `\n\n**🔎 Hướng test:** ${result.how_tested}` : '') +
+      ((checklistLines || issuesFallback) ? `\n\n**Checklist kết quả test:**\n${checklistLines || issuesFallback}` : '') +
+      (checkNeededLines ? `\n\n**❓ Cần kiểm tra thêm (UI/DB/runtime):**\n${checkNeededLines}` : '');
 
     await TrelloClient.addComment(task.card_id, comment);
   },

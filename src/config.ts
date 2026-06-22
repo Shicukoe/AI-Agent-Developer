@@ -25,6 +25,9 @@ const schema = z.object({
   TRELLO_AI_LABEL_NAME: z.string().default('AI'),
   // Label người dùng gắn để chốt plan ở stage Planning.
   TRELLO_PLAN_APPROVE_LABEL_NAME: z.string().default('plan approve'),
+  // Nhãn BẬT bước "BA kỹ thuật" (TechnicalRefiner). MẶC ĐỊNH refine chỉ chạy BA nghiệp vụ; chỉ khi card
+  // có nhãn này mới thêm phân tích kỹ thuật + tiêu chí/test_cases kỹ thuật. Tránh test fail oan vì spec kỹ thuật.
+  TRELLO_TECH_REFINE_LABEL_NAME: z.string().default('BA kỹ thuật'),
   ADMIN_TRELLO_MEMBER_IDS: csv(''),
 
   // Webhook vs Polling
@@ -53,19 +56,11 @@ const schema = z.object({
   // Đặt false để TẮT (A/B test so sánh token).
   OPTIMIZE_HISTORY: bool(true),
 
-  // ── Project Knowledge cache (hiểu dự án — dựng 1 lần, agent tái dùng) ──
-  // Quá số ngày này thì refresh dù git không đổi.
-  KNOWLEDGE_TTL_DAYS: num(7),
-  // Số file thay đổi tối đa còn cập nhật incremental; vượt → rebuild toàn bộ.
-  KNOWLEDGE_INCREMENTAL_MAX_FILES: num(15),
-  // Thời gian tối đa cho 1 lần dựng cache (cold start quét cả repo lớn có thể lâu). Mặc định 10 phút.
-  KNOWLEDGE_BUILD_TIMEOUT_MS: num(600000),
-  // Số lượt tool tối đa cho indexer. Đọc CÓ CHỌN LỌC; quá nhiều lượt → ngữ cảnh phình → model timeout.
-  KNOWLEDGE_BUILD_MAX_TURNS: num(18),
-  // Số luồng (flow) tối đa dựng kiến trúc chi tiết riêng cho 1 repo.
-  KNOWLEDGE_MAX_FLOWS: num(10),
-  // Số lượt tool tối đa khi dựng kiến trúc CHI TIẾT của 1 luồng (đọc tập trung file của luồng đó).
-  KNOWLEDGE_FLOW_MAX_TURNS: num(14),
+  // gen-docs: thời gian tối đa cho 1 lần sinh tài liệu dự án (quét repo lớn → ghi docs/). Mặc định 10 phút.
+  GEN_DOCS_TIMEOUT_MS: num(600000),
+  // gen-docs là việc agentic ĐỌC NHIỀU + GHI NHIỀU FILE → cần nhiều lượt tool (CLI mặc định chỉ 8 = quá ít,
+  // agent hết lượt trước khi kịp ghi → docs/ rỗng). Để rộng.
+  GEN_DOCS_MAX_TURNS: num(60),
   // Nhãn cho task "làm luôn" — ép fast-path thẳng Dev, bỏ refine/plan.
   TRELLO_QUICK_LABEL_NAME: z.string().default('quick'),
 
@@ -80,13 +75,17 @@ const schema = z.object({
 
   // Queue
   QUEUE_BACKEND: z.enum(['memory', 'redis']).default('memory'),
-  QUEUE_CONCURRENCY: num(3),
+  // Số card chạy SONG SONG trong MỖI worker (mỗi repo = 1 worker). Tổng toàn hệ = giá trị này × số repo.
+  // Nâng lên để chạy nhiều card cùng lúc (refine + test + dev song song). Thao tác git được khóa theo repo.
+  QUEUE_CONCURRENCY: num(5),
   REDIS_URL: z.string().optional(),
 
   // Git
   GIT_REPO_PATH: z.string().min(1),
   GIT_WORKTREE_BASE: z.string().min(1),
   GIT_DEFAULT_BASE_BRANCH: z.string().default('dev'),
+  // Override toàn cục đường dẫn docs dự án (mặc định <repo>/docs nếu trống).
+  PROJECT_DOCS_PATH: z.string().optional(),
   GIT_USER_NAME: z.string().default('AI Agent'),
   GIT_USER_EMAIL: z.string().default('ai-agent@local'),
   GITLAB_TOKEN: z.string().optional(),
@@ -101,6 +100,11 @@ const schema = z.object({
   PLANNING_MAX_TURNS: num(30),
   // Refine (BA/Tech/DocCard) đọc code repo lớn có thể >180s → cho timeout rộng hơn (mặc định 5 phút).
   REFINE_TIMEOUT_MS: num(300000),
+  // Test/Review: model NẶNG cho task khó (review xác minh code). Trống = dùng CLAUDE_MODEL.
+  // API: id model (vd 'claude-opus-4-8'); CLI: tên truyền vào --model.
+  REVIEW_MODEL: z.string().optional(),
+  REVIEW_MAX_TURNS: num(25),       // reviewer đọc code trong ngữ cảnh để xác minh → cần nhiều lượt tool
+  REVIEW_TIMEOUT_MS: num(420000),  // 7 phút
 
   // Risk
   RISK_MAX_ACTIONS_PER_TASK: num(20),
@@ -190,6 +194,11 @@ export function hasAiLabel(labels: Array<{ name: string }>): boolean {
 /** Card có nhãn chốt plan (plan approve) không? */
 export function hasPlanApproveLabel(labels: Array<{ name: string }>): boolean {
   return hasLabelNamed(labels, config.TRELLO_PLAN_APPROVE_LABEL_NAME);
+}
+
+/** Card có nhãn bật BA kỹ thuật (TechnicalRefiner) không? Không có → refine chỉ chạy BA nghiệp vụ. */
+export function hasTechRefineLabel(labels: Array<{ name: string }>): boolean {
+  return hasLabelNamed(labels, config.TRELLO_TECH_REFINE_LABEL_NAME);
 }
 
 /** Card có nhãn "làm luôn" (quick) — ép fast-path thẳng Dev không? */

@@ -62,6 +62,11 @@ function setLastSeen(boardId: string, actionId: string): void {
 export class TrelloPoller extends EventEmitter {
   private timer: ReturnType<typeof setInterval> | null = null;
 
+  /** @param boardIds board cần poll (đa-process). Bỏ trống = RepoRegistry.watchedBoardIds() (single-process). */
+  constructor(private boardIds?: string[]) {
+    super();
+  }
+
   start(): void {
     log.info({ interval: config.POLL_INTERVAL_MS }, 'Poller started');
     this.poll();
@@ -73,8 +78,9 @@ export class TrelloPoller extends EventEmitter {
   }
 
   private async poll(): Promise<void> {
-    // Đọc lại mỗi vòng → board thêm qua admin được quét ngay, không cần restart.
-    for (const boardId of RepoRegistry.watchedBoardIds()) {
+    // Worker: poll đúng board của mình; single-process: tất cả board watched (đọc lại mỗi vòng).
+    const boards = this.boardIds ?? RepoRegistry.watchedBoardIds();
+    for (const boardId of boards) {
       try {
         const lastSeen = getLastSeen(boardId);
         const actions = await TrelloClient.getBoardActions(boardId, { since: lastSeen, filter: 'updateCard,commentCard,addLabelToCard' });

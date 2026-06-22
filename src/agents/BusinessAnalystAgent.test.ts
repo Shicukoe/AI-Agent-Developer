@@ -4,10 +4,10 @@ import { BusinessAnalystAgent } from './BusinessAnalystAgent.js';
 import { LlmClient } from '../claude/LlmClient.js';
 import { TrelloClient } from '../trello/TrelloClient.js';
 import { CardMemory } from './CardMemory.js';
-import { ProjectKnowledge } from './ProjectKnowledge.js';
+import { ProjectDocs } from './ProjectDocs.js';
 import type { Task } from '../state/TaskRepository.js';
 
-const task = { id: 1, card_id: 'card123' } as unknown as Task;
+const task = { id: 1, card_id: 'card123', repo_path: '/tmp/repo' } as unknown as Task;
 
 describe('BusinessAnalystAgent — chỉ phân tích, KHÔNG tạo card con', () => {
   beforeEach(() => {
@@ -15,7 +15,8 @@ describe('BusinessAnalystAgent — chỉ phân tích, KHÔNG tạo card con', ()
     vi.spyOn(TrelloClient, 'getCard').mockResolvedValue({ id: 'card123', name: 'Test', desc: '', labels: [], checklists: [], attachments: [] } as never);
     vi.spyOn(CardMemory, 'loadContext').mockResolvedValue('');
     vi.spyOn(CardMemory, 'post').mockResolvedValue(undefined as never);
-    vi.spyOn(ProjectKnowledge, 'summary').mockReturnValue('');
+    vi.spyOn(ProjectDocs, 'exists').mockReturnValue(true);
+    vi.spyOn(ProjectDocs, 'guidance').mockReturnValue('');
   });
 
   it('trả AnalystResponse và KHÔNG gọi TrelloClient.createCard', async () => {

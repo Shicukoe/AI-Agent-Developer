@@ -11,7 +11,8 @@ import { RiskGuard } from '../risk/RiskGuard.js';
 import { LlmClient } from '../claude/LlmClient.js';
 import { makeStreamHandler } from '../claude/claudeStream.js';
 import { conventionsBlock } from '../claude/conventions.js';
-import { ProjectKnowledge } from './ProjectKnowledge.js';
+import { ProjectDocs } from './ProjectDocs.js';
+import { RepoRegistry } from '../repos/RepoRegistry.js';
 import { config } from '../config.js';
 import { childLogger } from '../utils/logger.js';
 import type { Task } from '../state/TaskRepository.js';
@@ -99,7 +100,7 @@ export const DevAgent = {
     const card = await TrelloClient.getCard(task.card_id).catch(() => null);
     const epicId = card ? CardMemory.parseEpicId(card.desc) : null;
     if (epicId) memoryContext += await CardMemory.epicContext(epicId);
-    const projectContext = await ProjectKnowledge.contextForTask(task, planContext, 4000);
+    const projectContext = ProjectDocs.guidance(task.repo_path ?? config.GIT_REPO_PATH, RepoRegistry.docsPathForTask(task));
     const prompt = buildPrompt(task, planContext, worktreePath, task.repo_path ?? config.GIT_REPO_PATH, projectContext, memoryContext);
     const timeoutMs = config.MAX_TASK_PROCESSING_MINUTES * 60 * 1000;
 
@@ -200,7 +201,7 @@ export const DevAgent = {
 
     // Quyết định thành công dựa trên THAY ĐỔI FILE THẬT (git status), KHÔNG phụ thuộc text output:
     // claude có thể đã ghi file dù stdout rỗng/exit ≠ 0.
-    const commitHash = await this.commitChanges(task, worktreePath, task.card_name, summary || '(agent không in tóm tắt)');
+    const commitHash = await this.commitChanges(task, worktreePath, task.card_name);
 
     if (commitHash) {
       log.info({ taskId: task.id, commitHash, branch: task.branch_name }, 'DevAgent committed');
@@ -216,7 +217,7 @@ export const DevAgent = {
     return { committed: false };
   },
 
-  async commitChanges(task: Task, worktreePath: string, cardName: string, summary?: string): Promise<string> {
+  async commitChanges(task: Task, worktreePath: string, cardName: string): Promise<string> {
     // Chỉ commit khi thực sự có thay đổi file (tránh commit rỗng và phản ánh đúng "không tạo gì").
     const status = await ShellExecutor.git(['status', '--porcelain'], worktreePath).catch(() => ({ stdout: '' }));
     if (!String(status.stdout).trim()) {
@@ -224,10 +225,8 @@ export const DevAgent = {
       return '';
     }
 
-    const message =
-      `[AUTO] ${cardName}\n\n` +
-      `${summary ?? 'Automated implementation by AI Agent'}\n\n` +
-      `Trello card: ${task.card_id}`;
+    // Message GỌN: chỉ tiêu đề = tên card (chi tiết "đã làm gì" đã ghi ở comment/memory card).
+    const message = cardName.replace(/\s+/g, ' ').trim().slice(0, 72) || 'Cập nhật (AI Agent)';
 
     let hash = '';
     try {

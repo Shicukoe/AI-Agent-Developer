@@ -7,9 +7,10 @@ import type { TrelloEvent } from './types.js';
 export class TrelloConnector extends EventEmitter {
   private inner: TrelloWebhookServer | TrelloPoller;
 
-  constructor() {
+  /** @param boardIds chỉ theo dõi các board này (đa-process: board của worker). Bỏ trống = tất cả board watched. */
+  constructor(boardIds?: string[]) {
     super();
-    this.inner = config.TRELLO_USE_WEBHOOK ? new TrelloWebhookServer() : new TrelloPoller();
+    this.inner = config.TRELLO_USE_WEBHOOK ? new TrelloWebhookServer(boardIds) : new TrelloPoller(boardIds);
     this.inner.on('trello:event', (event: TrelloEvent) => this.emit('trello:event', event));
   }
 
