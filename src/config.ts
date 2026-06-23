@@ -51,6 +51,9 @@ const schema = z.object({
   // Triage (phát hiện task tí hon — rẻ, chỉ đọc text card) và Indexer (dựng cache hiểu dự án).
   MODEL_TRIAGE: z.enum(['claude', 'gemini', 'openai']).default('claude'),
   MODEL_INDEXER: z.enum(['claude', 'gemini', 'openai']).default('claude'),
+  // Model cụ thể theo khâu (API: id; CLI: --model). Triage rẻ → Haiku; lập kế hoạch EPIC (lớn) → Opus.
+  TRIAGE_MODEL: z.string().default('claude-haiku-4-5-20251001'),
+  EPIC_MODEL: z.string().default('claude-opus-4-8'),
 
   // Toggle lược bỏ quy ước lặp (CLAUDE.md/overview) ở Turn 1+ để tiết kiệm token.
   // Đặt false để TẮT (A/B test so sánh token).
@@ -61,6 +64,10 @@ const schema = z.object({
   // gen-docs là việc agentic ĐỌC NHIỀU + GHI NHIỀU FILE chi tiết → cần nhiều lượt tool (CLI mặc định chỉ 8 =
   // quá ít, agent hết lượt trước khi kịp ghi → docs/ rỗng). Để rộng cho tài liệu sâu + sơ đồ.
   GEN_DOCS_MAX_TURNS: num(120),
+  // gen-docs (đọc repo + VIẾT tài liệu) là khâu QUAN TRỌNG → dùng model NẶNG (Opus). API: id model; CLI: --model.
+  DOCS_MODEL: z.string().default('claude-opus-4-8'),
+  // gen-docs --deepen: feature doc NHỎ HƠN ngưỡng (byte) coi là "mỏng" → viết lại SÂU; file lớn hơn giữ nguyên.
+  GEN_DOCS_DEEPEN_MIN_BYTES: num(6000),
   // Nhãn cho task "làm luôn" — ép fast-path thẳng Dev, bỏ refine/plan.
   TRELLO_QUICK_LABEL_NAME: z.string().default('quick'),
 

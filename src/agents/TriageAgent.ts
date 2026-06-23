@@ -63,7 +63,7 @@ export const TriageAgent = {
       const res = await LlmClient.runForJson<{ trivial: boolean; reason?: string; spec?: string }>(
         `${SYSTEM}\n\n${prompt}`,
         config.MODEL_TRIAGE,
-        { maxTurns: 1, label: `triage:${card.id.slice(0, 6)}` },   // KHÔNG allowedTools → không đọc repo
+        { maxTurns: 1, model: config.TRIAGE_MODEL, label: `triage:${card.id.slice(0, 6)}` },   // Haiku — rẻ, không đọc repo
       );
       return {
         trivial: !!res.trivial,

@@ -211,7 +211,7 @@ export const StageRouter = {
       TaskRepository.setStatus(task.id, 'processing');
       TaskRepository.heartbeat(task.id);
 
-      const plan = await PlannerAgent.run(task);
+      const plan = await PlannerAgent.run(task, undefined, config.EPIC_MODEL);   // Epic → Opus
       // Lưu plan JSON để khi chốt còn sinh card con (PLAN.md là markdown, không tiện parse lại)
       TaskRepository.update(task.id, {
         task_type: 'epic',

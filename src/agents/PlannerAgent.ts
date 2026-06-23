@@ -72,7 +72,7 @@ estimated_complexity is 1-10. Break large work into 2-5 focused sub-tasks.`;
 }
 
 export const PlannerAgent = {
-  async run(task: Task, modifyInstruction?: string): Promise<PlanResponse> {
+  async run(task: Task, modifyInstruction?: string, model: string = config.CLAUDE_MODEL): Promise<PlanResponse> {
     log.info({ taskId: task.id }, 'PlannerAgent starting');
 
     const repoPath = task.repo_path ?? config.GIT_REPO_PATH;
@@ -98,6 +98,7 @@ export const PlannerAgent = {
       {
         allowedTools: ['Read', 'Glob', 'Grep'],
         cwd: repoPath,
+        model,                               // Epic → Opus (EPIC_MODEL); planning thường → Sonnet
         maxTurns: config.PLANNING_MAX_TURNS,
         timeoutMs: config.PLANNING_TIMEOUT_MS,
         label: `plan:${task.card_id.slice(0, 6)}`,

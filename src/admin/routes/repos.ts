@@ -120,14 +120,19 @@ export function reposRouter(registry: WorkerRegistry): Router {
   }));
 
   // Sinh tài liệu dự án (gen-docs) cho repo — chạy NỀN (việc nặng), người review + commit docs sau.
+  // body.mode: 'continue' = giữ file cũ, bổ sung phần thiếu · 'deepen' = giữ mọi file, viết lại sâu file mỏng ·
+  //            'full' = sinh lại toàn bộ · (trống) = auto/incremental.
   router.post('/repos/:id/gen-docs', wrap(async (req, res) => {
     const cfg = RepoConfigRepository.getById(String(req.params.id));
     if (!cfg) { res.status(404).json({ error: 'Cấu hình không tồn tại.' }); return; }
     const docsPath = cfg.docs_path?.trim() || join(cfg.repo_path, 'docs');
-    void generateDocs(cfg.repo_path, docsPath).catch(err =>
+    const mode = String(req.body?.mode || '');
+    const opts = { full: mode === 'full', continue: mode === 'continue', deepen: mode === 'deepen' };
+    void generateDocs(cfg.repo_path, docsPath, opts).catch(err =>
       log.error({ repoPath: cfg.repo_path, err: (err as Error).message }, 'gen-docs nền lỗi'));
-    log.info({ repoPath: cfg.repo_path, docsPath }, 'gen-docs nền: bắt đầu');
-    res.json({ ok: true, message: `Đang sinh tài liệu nền vào ${docsPath}. Xem log; xong thì review + commit.` });
+    log.info({ repoPath: cfg.repo_path, docsPath, mode: mode || 'auto' }, 'gen-docs nền: bắt đầu');
+    const label = mode === 'continue' ? 'bổ sung phần thiếu' : mode === 'deepen' ? 'làm sâu file mỏng' : mode === 'full' ? 'sinh lại toàn bộ' : 'auto';
+    res.json({ ok: true, message: `Đang sinh tài liệu (${label}) nền vào ${docsPath}. Xem log; xong thì review + commit.` });
   }));
 
   // Xoá cấu hình repo.

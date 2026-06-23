@@ -160,9 +160,10 @@ Test PASS → tự merge vào integration branch. Card con kế thừa `repo_key
   credentials `~/.claude`). DevAgent luôn spawn CLI (phiên agentic). `run/runForJson` nhận `model` override
   (API: id; CLI: `--model`). ClaudeCliClient nhận sự kiện `result` (stream-json) là **kết thúc ngay + kill**
   tiến trình (CLI hay treo sau khi xong → tránh chờ timeout).
-- **Chọn model (token):** đọc/hiểu card (Triage/BA/Tech) + gen-docs dùng **Sonnet** (`CLAUDE_MODEL`, truyền
-  `model` tường minh) — đủ & rẻ. **Review** dùng `REVIEW_MODEL` (trống = Sonnet; đặt `opus` khi cần bắt bug
-  tinh vi). DevAgent theo model của gói Claude CLI.
+- **Chọn model theo khâu (token):** **Triage** = **Haiku** (`TRIAGE_MODEL`, rẻ nhất — chỉ đọc text card);
+  **BA/Tech** = **Sonnet** (`CLAUDE_MODEL`); **Planning thường** = Sonnet, **Epic** = **Opus** (`EPIC_MODEL`);
+  **gen-docs** = **Opus** (`DOCS_MODEL`); **Review** = `REVIEW_MODEL` (trống = Sonnet; `opus` khi cần). DevAgent
+  theo model của gói Claude CLI. Mọi cái đều đổi được trong `.env`.
 - `runForJson` **thử lại tối đa 2 lần** khi output thiếu JSON (CLI đôi khi chỉ "chào rồi dừng"), nhắc
   cứng hơn ở lần 2. BA/Tech có **fallback** để 1 lần lỗi không giết cả task.
 - Timeout: Refine (BA/Tech/DocCard) = `REFINE_TIMEOUT_MS`; gen-docs = `GEN_DOCS_TIMEOUT_MS`;

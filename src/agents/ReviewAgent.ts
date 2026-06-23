@@ -26,6 +26,29 @@ function parseChildBase(metadata: string | null): string | null {
   }
 }
 
+const VALID_VERDICTS: ReadonlyArray<ReviewResponse['verdict']> = ['PASS', 'FAIL', 'NEEDS_INFO'];
+
+/**
+ * Chuẩn hoá kết quả review từ LLM: model đôi khi trả JSON THIẾU/SAI `verdict` hoặc thiếu `issues`
+ * (parse được nên không vào nhánh catch) → ép về hợp lệ để KHÔNG vi phạm NOT NULL khi ghi DB.
+ * Verdict không xác định → NEEDS_INFO (không tự ý PASS/FAIL sai).
+ */
+function normalizeReview(r: ReviewResponse | null | undefined): ReviewResponse {
+  const raw = (r ?? {}) as Partial<ReviewResponse>;
+  const verdict = VALID_VERDICTS.includes(raw.verdict as ReviewResponse['verdict'])
+    ? (raw.verdict as ReviewResponse['verdict'])
+    : 'NEEDS_INFO';
+  return {
+    ...raw,
+    verdict,
+    issues: Array.isArray(raw.issues) ? raw.issues : [],
+    conventions_check: typeof raw.conventions_check === 'boolean' ? raw.conventions_check : false,
+    summary: (typeof raw.summary === 'string' && raw.summary.trim())
+      ? raw.summary
+      : 'Reviewer không trả về verdict rõ ràng — cần kiểm tra lại (RETRY) hoặc xem log.',
+  } as ReviewResponse;
+}
+
 /** Trích "Ghi chú Dev" (cách đã làm & hướng test) từ mô tả card. Bỏ nếu trống/chỉ còn placeholder. */
 function extractDevNote(desc: string | null | undefined): string {
   const d = (desc ?? '').replace(/\r/g, '');
@@ -311,6 +334,8 @@ export const ReviewAgent = {
       return soft;
     }
 
+    // LLM có thể trả thiếu/sai verdict hoặc thiếu issues → chuẩn hoá trước khi ghi DB/Trello (tránh NOT NULL).
+    result = normalizeReview(result);
     await this.persistResult(task.id, undefined, attempt, result);
     await this.postReviewComment(task, result);
 
@@ -345,8 +370,10 @@ export const ReviewAgent = {
   },
 
   async persistResult(taskId: string, subTaskId: string | undefined, attempt: number, result: ReviewResponse): Promise<void> {
+    // Backstop: không bao giờ ghi verdict NULL (cột NOT NULL) dù gọi từ đường nào.
+    const verdict = VALID_VERDICTS.includes(result.verdict) ? result.verdict : 'NEEDS_INFO';
     getDb()
       .prepare(`INSERT INTO review_results VALUES (?, ?, ?, ?, ?, ?, ?, ?)`)
-      .run(randomUUID(), taskId, subTaskId ?? null, attempt, result.verdict, JSON.stringify(result.issues), result.summary, Date.now());
+      .run(randomUUID(), taskId, subTaskId ?? null, attempt, verdict, JSON.stringify(result.issues ?? []), result.summary ?? '', Date.now());
   },
 };

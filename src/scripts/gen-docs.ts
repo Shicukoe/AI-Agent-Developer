@@ -6,13 +6,14 @@
  *   npm run gen-docs -- <repo_path>       → repo theo đường dẫn
  *   npm run gen-docs -- <target> --full       → ép sinh lại TOÀN BỘ (bỏ qua incremental)
  *   npm run gen-docs -- <target> --continue   → GIỮ file đã có, chỉ viết THÊM doc cho chức năng còn thiếu
+ *   npm run gen-docs -- <target> --deepen     → GIỮ mọi file; viết LẠI SÂU các feature doc đang MỎNG (< ngưỡng byte)
  *
  * MẶC ĐỊNH incremental: đã có docs + mốc commit cũ → chỉ đọc commit MỚI kể từ lần trước và cập nhật đúng
  * doc bị ảnh hưởng (tiết kiệm token/thời gian). Lần đầu (chưa có mốc) → sinh đầy đủ. Chỉ chạy KHI được yêu cầu.
  * Agent có quyền GHI FILE trong docs/; người review rồi commit.
  */
 import 'dotenv/config';
-import { existsSync, mkdirSync, readFileSync, writeFileSync, readdirSync } from 'fs';
+import { existsSync, mkdirSync, readFileSync, writeFileSync, readdirSync, statSync } from 'fs';
 import { join, relative } from 'path';
 import { LlmClient } from '../claude/LlmClient.js';
 import { GitClient } from '../git/GitClient.js';
@@ -159,8 +160,40 @@ ${list}
 Khi xong, in tóm tắt (TIẾNG VIỆT) các file MỚI đã tạo + 1 dòng mô tả mỗi file.`;
 }
 
+/** Prompt LÀM SÂU: GIỮ NGUYÊN mọi file khác; chỉ VIẾT LẠI SÂU các feature doc đang MỎNG tới chuẩn đầy đủ. */
+function deepenPrompt(docsRel: string, thinFiles: string[]): string {
+  const list = thinFiles.map(f => `- ${f}`).join('\n');
+  return `Bạn là CHUYÊN GIA PHÂN TÍCH NGHIỆP VỤ kiêm KIẾN TRÚC SƯ. Bộ tài liệu trong \`${docsRel}/\` đã có sẵn; một số
+file feature được viết SƠ SÀI (mỏng), cần LÀM SÂU tới cùng chuẩn chi tiết như các tài liệu đầy đủ khác.
+
+## CHỈ làm sâu ĐÚNG các file sau (đã lọc theo độ mỏng) — KHÔNG đụng file nào khác
+${list}
+
+## Nhiệm vụ: với MỖI file ở trên
+1. Read file đó + dùng Glob/Grep/Read đọc code liên quan (tra \`00_CHI_MUC.md\` để biết "thứ X ở file nào")
+   → hiểu đầy đủ nghiệp vụ, luồng, dữ liệu, business rule.
+2. **VIẾT LẠI (ghi đè) file đó** cho SÂU, GIỮ NGUYÊN tên file & ranh giới chức năng, đạt **SÀN 5 MỤC** dưới đây.
+
+## SÀN 5 MỤC BẮT BUỘC cho mỗi file (thiếu mục nào là CHƯA đạt)
+1. **Nghiệp vụ:** ai dùng, mục tiêu, làm được gì & vì sao.
+2. **Luồng xử lý:** mô tả nghiệp vụ + **đúng 1 sơ đồ** Mermaid (\`flowchart\`/\`sequenceDiagram\`) — thao tác người
+   dùng → các bước xử lý → dữ liệu/kết quả.
+3. **Dữ liệu & trạng thái:** bảng model/field/quan hệ chính + các trạng thái & chuyển trạng thái (nghĩa nghiệp vụ).
+4. **Business rule / validation / phân quyền:** điều kiện, ràng buộc, công thức (CỤ THỂ, không chung chung).
+5. **Con trỏ code:** vài đường dẫn file/method chính **kèm số dòng** (vd \`models/x.py:37\`) — CHỈ con trỏ.
+
+## Ràng buộc
+- NGHIÊNG NGHIỆP VỤ, ÍT CODE: **KHÔNG chép đoạn code** vào docs; con trỏ chỉ ghi đường dẫn + số dòng.
+- **ĐÚNG 1 sơ đồ Mermaid/ file** — chọn loại nhiều thông tin nhất, KHÔNG vẽ nhiều sơ đồ.
+- TUYỆT ĐỐI **KHÔNG** tạo/sửa/xoá bất kỳ file nào KHÔNG nằm trong danh sách trên (giữ nguyên file đầy đủ sẵn có,
+  các \`00_*.md\`, và mọi feature doc khác). Chỉ ghi đè đúng các file đã liệt kê, trong \`${docsRel}/\`.
+- Tiếng Việt, giữ nguyên tên file/model/field.
+
+Khi xong, in tóm tắt (TIẾNG VIỆT): mỗi file đã làm sâu + 1 dòng nêu đã bổ sung mục/nội dung gì.`;
+}
+
 /** Sinh/cập nhật docs vào `docsPath` của repo `repoPath`. Trả tóm tắt. */
-export async function generateDocs(repoPath: string, docsPath: string, opts?: { full?: boolean; continue?: boolean }): Promise<string> {
+export async function generateDocs(repoPath: string, docsPath: string, opts?: { full?: boolean; continue?: boolean; deepen?: boolean }): Promise<string> {
   if (!existsSync(docsPath)) mkdirSync(docsPath, { recursive: true });
   const docsRel = relative(repoPath, docsPath).replace(/\\/g, '/') || 'docs';
 
@@ -168,10 +201,24 @@ export async function generateDocs(repoPath: string, docsPath: string, opts?: { 
   const head = await GitClient.revParse(repoPath, 'HEAD');
   const last = readSync(docsPath).last_commit;
   const hasDocs = existsSync(join(docsPath, '00_TONG_THE.md'));
-  let mode: 'full' | 'incremental' | 'continue' = 'full';
+  let mode: 'full' | 'incremental' | 'continue' | 'deepen' = 'full';
   let prompt = fullPrompt(docsRel);
 
-  if (opts?.continue && !opts?.full) {
+  if (opts?.deepen && !opts?.full) {
+    // LÀM SÂU: giữ mọi file; chỉ viết lại sâu các feature doc đang MỎNG (size < ngưỡng).
+    mode = 'deepen';
+    const minBytes = config.GEN_DOCS_DEEPEN_MIN_BYTES;
+    const thin = (existsSync(docsPath) ? readdirSync(docsPath) : [])
+      .filter(f => f.endsWith('.md') && !f.startsWith('00_'))
+      .filter(f => { try { return statSync(join(docsPath, f)).size < minBytes; } catch { return false; } })
+      .sort();
+    if (!thin.length) {
+      log.info({ repoPath, minBytes }, 'gen-docs deepen: không có feature doc nào dưới ngưỡng mỏng');
+      return `Không có feature doc nào dưới ${minBytes} byte — tất cả đã đủ sâu, không cần làm sâu.`;
+    }
+    log.info({ repoPath, thin, minBytes }, 'gen-docs deepen: sẽ viết lại sâu các file mỏng');
+    prompt = deepenPrompt(docsRel, thin);
+  } else if (opts?.continue && !opts?.full) {
     // LÀM TIẾP: giữ file đã có, chỉ bổ sung phần thiếu.
     mode = 'continue';
     const existing = existsSync(docsPath) ? readdirSync(docsPath).filter(f => f.endsWith('.md')).sort() : [];
@@ -197,7 +244,7 @@ export async function generateDocs(repoPath: string, docsPath: string, opts?: { 
   const summary = await LlmClient.run(prompt, config.MODEL_INDEXER, {
     allowedTools: ['Read', 'Glob', 'Grep', 'Write', 'Edit'],
     cwd: repoPath,
-    model: config.CLAUDE_MODEL,             // Sonnet (mặc định) — task đọc/ghi nặng, không cần model đắt
+    model: config.DOCS_MODEL,               // Opus (mặc định) — đọc+viết tài liệu là khâu quan trọng
     timeoutMs: config.GEN_DOCS_TIMEOUT_MS,
     maxTurns: config.GEN_DOCS_MAX_TURNS,   // đủ lượt để ĐỌC repo + GHI nhiều file docs (CLI mặc định 8 là quá ít)
     label: `gendocs:${docsRel}`,
@@ -223,10 +270,11 @@ if (isCli) {
   const rawArgs = process.argv.slice(2);
   const full = rawArgs.includes('--full');
   const cont = rawArgs.includes('--continue');
+  const deepen = rawArgs.includes('--deepen');
   const target = rawArgs.find(a => !a.startsWith('--'));
   const { repoPath, docsPath } = resolveTarget(target);
-  console.log(`\n📚 gen-docs (${full ? 'FULL' : cont ? 'CONTINUE' : 'auto'}): ${repoPath} → ${docsPath}\n`);
-  generateDocs(repoPath, docsPath, { full, continue: cont })
+  console.log(`\n📚 gen-docs (${full ? 'FULL' : deepen ? 'DEEPEN' : cont ? 'CONTINUE' : 'auto'}): ${repoPath} → ${docsPath}\n`);
+  generateDocs(repoPath, docsPath, { full, continue: cont, deepen })
     .then(summary => { console.log('\n--- Tóm tắt ---\n' + (summary || '(agent không in tóm tắt)')); console.log(`\n✅ Xong. Kiểm tra ${docsPath} rồi commit (kể cả ${SYNC_FILE}).`); })
     .catch(err => { console.error('gen-docs lỗi:', err); process.exit(1); });
 }
