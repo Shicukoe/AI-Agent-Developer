@@ -16,6 +16,7 @@ import { DevAgent } from './DevAgent.js';
 import { taskKind } from './executors/types.js';
 import { pickExecutor } from './executors/registry.js';
 import { ReviewAgent } from './ReviewAgent.js';
+import { IndexAgent } from './IndexAgent.js';
 import { CardMemory } from './CardMemory.js';
 import { EpicManager } from './EpicManager.js';
 import { OrchestratorAgent } from './OrchestratorAgent.js';
@@ -77,6 +78,10 @@ export const StageRouter = {
     log.info({ taskId: task.id, cardId: card.id, stage, repo: repo.name }, 'Dispatching stage');
 
     TaskQueue.run(task.id, async () => {
+      // Chỉ mục tĩnh (grep, rẻ) — dựng nếu chưa có để agent TRA thay vì đọc lặp. Lỗi không chặn task.
+      const idxPath = join(repo.docsPath, '00_CHI_MUC.md');
+      if (!existsSync(idxPath)) await IndexAgent.build(repo.repoPath, idxPath).catch(() => {});
+
       const fresh = TaskRepository.findById(task.id)!;
       // Báo cho người dùng biết agent đã nhận task và bắt đầu xử lý (job vừa rời hàng đợi).
       await TrelloClient.addComment(fresh.card_id,
@@ -321,7 +326,7 @@ export const StageRouter = {
       return;
     }
 
-    // Chọn executor theo kind đã phân loại (RefineAgent). 'code' → DevAgent (luồng git bên dưới);
+    // Chọn executor theo kind đã phân loại (TechnicalRefiner). 'code' → DevAgent (luồng git bên dưới);
     // các kind khác → executor chuyên biệt. Không có executor phù hợp → báo admin và dừng.
     const kind = taskKind(task);
     if (kind !== 'code') {

@@ -30,13 +30,19 @@
     var inp = function (f, val, style) {
       return '<input class="form-control form-control-sm" data-f="' + f + '"' + (style ? ' style="' + style + '"' : '') + ' value="' + U.escapeHtml(val) + '">';
     };
+    var formatCtx = function (raw) {
+      if (!raw) return '';
+      try { var a = JSON.parse(raw); if (Array.isArray(a)) return a.join('\n'); } catch (e) { /* raw */ }
+      return raw;
+    };
     // Các ô name / repo_path / base_branch sửa trực tiếp được; bấm "Lưu" để cập nhật.
     return '' +
       '<tr data-id="' + it.id + '">' +
         '<td>' + inp('name', it.name) + '</td>' +
         '<td class="fs-12"><code>' + U.escapeHtml(it.board_id) + '</code></td>' +
         '<td>' + inp('repo_path', it.repo_path) +
-          '<div class="mt-1">' + inp('docs_path', it.docs_path || '') + '<span class="text-secondary" style="font-size:11px">docs (trống = &lt;repo&gt;/docs)</span></div></td>' +
+          '<div class="mt-1">' + inp('docs_path', it.docs_path || '') + '<span class="text-secondary" style="font-size:11px">docs (trống = &lt;repo&gt;/docs)</span></div>' +
+          '<div class="mt-1"><textarea class="form-control form-control-sm" data-f="context_repo_paths" rows="2" placeholder="Repo ngữ cảnh — mỗi dòng 1 path (chỉ đọc)">' + U.escapeHtml(formatCtx(it.context_repo_paths)) + '</textarea><span class="text-secondary" style="font-size:11px">repo ngữ cảnh (chỉ đọc)</span></div></td>' +
         '<td>' + inp('base_branch', it.base_branch, 'max-width:130px') + '</td>' +
         '<td>' + badge + '</td>' +
         '<td class="text-end" style="white-space:nowrap">' +
@@ -51,12 +57,12 @@
 
   async function createRepo() {
     var val = function (id) { return document.getElementById(id).value.trim(); };
-    var body = { board_id: val('f_board'), name: val('f_name'), repo_path: val('f_path'), base_branch: val('f_base') || 'dev', docs_path: val('f_docs') };
+    var body = { board_id: val('f_board'), name: val('f_name'), repo_path: val('f_path'), base_branch: val('f_base') || 'dev', docs_path: val('f_docs'), context_repo_paths: val('f_ctx') };
     if (!body.board_id || !body.name || !body.repo_path) { U.toast('Điền đủ Board ID, Tên, Repo path.', 'warning'); return; }
     try {
       await AdminApi.post('/repos', body);
       U.toast('Đã lưu dự án.', 'success');
-      ['f_board', 'f_name', 'f_path', 'f_docs'].forEach(function (id) { var el = document.getElementById(id); if (el) el.value = ''; });
+      ['f_board', 'f_name', 'f_path', 'f_docs', 'f_ctx'].forEach(function (id) { var el = document.getElementById(id); if (el) el.value = ''; });
       load();
     } catch (err) { U.toast(err.message, 'danger'); }
   }
@@ -70,7 +76,7 @@
       if (act === 'save') {
         var tr = btn.closest('tr');
         var body = {};
-        tr.querySelectorAll('input[data-f]').forEach(function (inp) { body[inp.getAttribute('data-f')] = inp.value.trim(); });
+        tr.querySelectorAll('[data-f]').forEach(function (inp) { body[inp.getAttribute('data-f')] = inp.value.trim(); });
         if (!body.base_branch) { U.toast('Base branch không được để trống.', 'warning'); return; }
         await AdminApi.put('/repos/' + id, body);
         U.toast('Đã lưu cấu hình.', 'success');

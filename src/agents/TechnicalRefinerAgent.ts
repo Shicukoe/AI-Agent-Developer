@@ -150,14 +150,14 @@ export const TechnicalRefinerAgent = {
     let memory = await CardMemory.loadContext(task.card_id);
     const epicId = CardMemory.parseEpicId(card.desc);
     if (epicId) memory += await CardMemory.epicContext(epicId);
-    const cacheSummary = ProjectDocs.guidance(repoPath, RepoRegistry.docsPathForTask(task));
+    const cacheSummary = ProjectDocs.guidance(repoPath, RepoRegistry.docsPathForTask(task)) + RepoRegistry.contextGuidanceForTask(task);
 
     let tech: TechRefineResponse;
     try {
       tech = await LlmClient.runForJson<TechRefineResponse>(
         buildTechPrompt(card, analystResp, memory, cacheSummary, repoPath),
         config.MODEL_REFINE,
-        { allowedTools: ['Read', 'Glob', 'Grep'], cwd: repoPath, maxTurns: 15, timeoutMs: config.REFINE_TIMEOUT_MS, label: `tech:${task.card_id.slice(0, 6)}` },
+        { allowedTools: ['Read', 'Glob', 'Grep'], cwd: repoPath, model: config.CLAUDE_MODEL, maxTurns: 15, timeoutMs: config.REFINE_TIMEOUT_MS, label: `tech:${task.card_id.slice(0, 6)}` },
       );
     } catch (err) {
       // CLI không trả JSON → KHÔNG crash. Định tuyến sang Planning để lập kế hoạch đầy đủ (an toàn).

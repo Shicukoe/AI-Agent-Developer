@@ -135,5 +135,6 @@ CREATE TABLE IF NOT EXISTS repo_configs (
   enabled      INTEGER NOT NULL DEFAULT 1,
   created_at   INTEGER NOT NULL,
   updated_at   INTEGER NOT NULL,
-  docs_path    TEXT             -- thư mục tài liệu dự án (mặc định <repo>/docs)
+  docs_path    TEXT,            -- thư mục tài liệu dự án (mặc định <repo>/docs)
+  context_repo_paths TEXT       -- JSON array path repo NGỮ CẢNH (chỉ đọc) cho agent tra cứu
 );

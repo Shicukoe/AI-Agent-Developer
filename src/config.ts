@@ -56,11 +56,11 @@ const schema = z.object({
   // Đặt false để TẮT (A/B test so sánh token).
   OPTIMIZE_HISTORY: bool(true),
 
-  // gen-docs: thời gian tối đa cho 1 lần sinh tài liệu dự án (quét repo lớn → ghi docs/). Mặc định 10 phút.
-  GEN_DOCS_TIMEOUT_MS: num(600000),
-  // gen-docs là việc agentic ĐỌC NHIỀU + GHI NHIỀU FILE → cần nhiều lượt tool (CLI mặc định chỉ 8 = quá ít,
-  // agent hết lượt trước khi kịp ghi → docs/ rỗng). Để rộng.
-  GEN_DOCS_MAX_TURNS: num(60),
+  // gen-docs: tài liệu CHI TIẾT (thay cho việc đọc cả repo) → khảo sát + ghi nhiều → để timeout rộng (20 phút).
+  GEN_DOCS_TIMEOUT_MS: num(1200000),
+  // gen-docs là việc agentic ĐỌC NHIỀU + GHI NHIỀU FILE chi tiết → cần nhiều lượt tool (CLI mặc định chỉ 8 =
+  // quá ít, agent hết lượt trước khi kịp ghi → docs/ rỗng). Để rộng cho tài liệu sâu + sơ đồ.
+  GEN_DOCS_MAX_TURNS: num(120),
   // Nhãn cho task "làm luôn" — ép fast-path thẳng Dev, bỏ refine/plan.
   TRELLO_QUICK_LABEL_NAME: z.string().default('quick'),
 

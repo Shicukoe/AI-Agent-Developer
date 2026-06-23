@@ -19,7 +19,7 @@ interface DocResult {
   card_body: string;
 }
 
-/** Đọc tên list đích do người dùng chỉ định (RefineAgent lưu vào metadata). */
+/** Đọc tên list đích do người dùng chỉ định (TechnicalRefiner lưu vào metadata). */
 function metaTargetList(task: Task): string {
   if (!task.metadata) return '';
   try {

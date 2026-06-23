@@ -72,7 +72,11 @@ npm run dev        # chạy supervisor → fork worker cho mỗi dự án
 Mở **admin**: `http://127.0.0.1:3457/admin` → nhập `ADMIN_API_TOKEN` → tab **Repos / Dự án**.
 
 Thêm dự án: **Board ID** + **Tên** + **Repo path** (đường dẫn repo ĐÃ clone **trên máy chạy agent**) +
-**Base branch** (`dev`/`staging`/`main`) + (tùy chọn) **Docs path**. Bấm **Lưu**.
+**Base branch** (`dev`/`staging`/`main`) + (tùy chọn) **Docs path** + (tùy chọn) **Repo ngữ cảnh (chỉ đọc)**.
+Bấm **Lưu**.
+
+- **Repo ngữ cảnh (chỉ đọc):** mỗi dòng 1 đường dẫn repo KHÁC để agent **đọc tham khảo** module liên quan
+  (vd `Permit`) khi task tham chiếu chéo. Agent chỉ ĐỌC các repo này; **vẫn chỉ ghi code/commit ở repo chính**.
 
 - **Tự chuẩn bị board:** khi **Lưu** repo mới, agent tự tạo các **list** (`Refine/Planning/Dev/Test/Epic/
   Info/Docs`) + **label** (`AI`, `plan approve`, `quick`, `BA kỹ thuật`) còn thiếu trên board — không phải

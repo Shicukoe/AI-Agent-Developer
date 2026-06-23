@@ -12,6 +12,8 @@ export interface RepoConfig {
   created_at: number;
   updated_at: number;
   docs_path: string | null;   // thư mục tài liệu (mặc định <repo>/docs nếu null)
+  /** JSON array các đường dẫn repo NGỮ CẢNH (chỉ đọc) để agent tra cứu module liên quan. null = không có. */
+  context_repo_paths: string | null;
 }
 
 export interface RepoConfigInput {
@@ -21,6 +23,7 @@ export interface RepoConfigInput {
   base_branch?: string;
   enabled?: boolean;
   docs_path?: string;
+  context_repo_paths?: string;   // JSON array (đã stringify) hoặc null
 }
 
 export const RepoConfigRepository = {
@@ -52,9 +55,10 @@ export const RepoConfigRepository = {
       created_at: now,
       updated_at: now,
       docs_path: input.docs_path?.trim() || null,
+      context_repo_paths: input.context_repo_paths?.trim() || null,
     };
     getDb().prepare(`INSERT INTO repo_configs VALUES (
-      @id, @board_id, @name, @repo_path, @base_branch, @enabled, @created_at, @updated_at, @docs_path
+      @id, @board_id, @name, @repo_path, @base_branch, @enabled, @created_at, @updated_at, @docs_path, @context_repo_paths
     )`).run(row);
     return row;
   },

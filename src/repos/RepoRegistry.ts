@@ -28,6 +28,16 @@ function defaultDocsPath(repoPath: string): string {
   return config.PROJECT_DOCS_PATH?.trim() || join(repoPath, 'docs');
 }
 
+/** Parse context_repo_paths (ưu tiên JSON array; fallback tách theo xuống dòng/;). Lọc rỗng. */
+function parseContextPaths(raw: string | null | undefined): string[] {
+  if (!raw || !raw.trim()) return [];
+  try {
+    const arr = JSON.parse(raw);
+    if (Array.isArray(arr)) return arr.map(s => String(s).trim()).filter(Boolean);
+  } catch { /* không phải JSON → tách thủ công */ }
+  return raw.split(/[\r\n;]+/).map(s => s.trim()).filter(Boolean);
+}
+
 /** Repo mặc định (backward-compat khi chưa cấu hình board nào) — lấy từ .env. */
 function defaultRepo(): ResolvedRepo {
   return {
@@ -92,5 +102,21 @@ export const RepoRegistry = {
     const cfg = task.repo_key ? RepoConfigRepository.getById(task.repo_key) : undefined;
     if (cfg) return cfg.docs_path?.trim() || defaultDocsPath(cfg.repo_path);
     return defaultDocsPath(task.repo_path ?? config.GIT_REPO_PATH);
+  },
+
+  /** Các repo NGỮ CẢNH (chỉ đọc) của task — để agent tra cứu module liên quan ngoài repo chính. */
+  contextReposForTask(task: Task): string[] {
+    const cfg = task.repo_key ? RepoConfigRepository.getById(task.repo_key) : undefined;
+    return parseContextPaths(cfg?.context_repo_paths);
+  },
+
+  /** Khối chỉ dẫn (chèn vào prompt) về repo ngữ cảnh; rỗng nếu không có. */
+  contextGuidanceForTask(task: Task): string {
+    const paths = this.contextReposForTask(task);
+    if (!paths.length) return '';
+    return `\n## Repo NGỮ CẢNH (CHỈ ĐỌC — KHÔNG sửa/commit ở đây)\n` +
+      `Để hiểu/đối chiếu module liên quan NGOÀI repo chính, được Read/Glob/Grep tại các đường dẫn sau:\n` +
+      paths.map(p => `- ${p}`).join('\n') +
+      `\nDùng để tra cứu/tham chiếu. Mọi thay đổi code VẪN chỉ ở repo chính (cwd).\n`;
   },
 };

@@ -5,7 +5,7 @@ import { DocCardExecutor } from './DocCardExecutor.js';
 /**
  * Đăng ký các executor cho từng kind (trừ 'code' — do DevAgent xử lý trực tiếp trong runDev).
  * Thêm năng lực/agent mới: cài đặt một Executor rồi thêm vào đây + bổ sung giá trị TaskKind +
- * dạy RefineAgent phân loại kind đó.
+ * dạy TechnicalRefiner phân loại kind đó.
  */
 const EXECUTORS: Partial<Record<TaskKind, Executor>> = {
   doc_card: DocCardExecutor,

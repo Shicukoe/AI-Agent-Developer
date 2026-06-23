@@ -82,8 +82,19 @@ ${devNoteBlock(devNote)}${testCasesBlock(testCases)}
 ${docsGuidance}
 - ĐỌC tài liệu dự án (docs) để định hướng NHANH (luồng nào, file nào) TRƯỚC khi grep. Docs là tri thức đã
   có sẵn — TÁI DÙNG để khỏi dò lại từ đầu mỗi lần test.
-- Chỉ đào sâu code ở phần **liên quan trực tiếp** tới thay đổi (diff) + tiêu chí. KHÔNG quét/grep toàn repo.
+- Chỉ đào sâu code ở phần **liên quan trực tiếp** tới thay đổi (diff) + tiêu chí.
 - Đủ hiểu để kết luận thì **DỪNG NGAY** và xuất JSON. Có giới hạn lượt tool — đừng tìm vô hạn.
+
+## Trước khi kết luận PHỦ ĐỊNH ("thiếu / chưa đăng ký / chưa dùng / không tìm thấy / chưa cấu hình")
+Đây là nguồn FAIL OAN phổ biến nhất, nhưng ĐỪNG đọc lại cả repo (tốn token). Quy trình RẺ:
+1. **Tra CHỈ MỤC + DOCS trước** — \`docs/00_CHI_MUC.md\` (chỉ mục grep: model/component/đăng ký/template_name/
+   route → file nào) + feature doc liên quan + \`00_TONG_THE.md\`. Thường trả lời ngay "X nằm/được wired ở đâu".
+2. Docs CHƯA đủ → chạy **1–2 lệnh grep CÓ MỤC TIÊU** đúng ký hiệu (tên class, \`registry...add\`, \`template_name\`,
+   \`import\`, \`ref\` id) trên TOÀN repo — KHÔNG đọc tràn lan từng file.
+3. Một tính năng RẤT HAY nằm ở **module/báo cáo KHÁC** với chỗ bạn đoán (vd đăng ký ở \`safety_working\` chứ
+   không phải \`assessment_environment\`). Tìm thấy ở nơi khác = **ĐÃ CÓ (không phải lỗi)**.
+4. Đã tra docs + grep mục tiêu mà vẫn KHÔNG chắc → **NEEDS_INFO**, ĐỪNG FAIL. Tuyệt đối đừng kết luận "không có"
+   chỉ vì xem 1 file/1 module. (Docs càng chi tiết → càng ít phải grep → càng rẻ.)
 - **BẮT BUỘC** kết thúc câu trả lời bằng DUY NHẤT khối JSON kết quả (kể cả khi chưa chắc → \`NEEDS_INFO\`).
   TUYỆT ĐỐI không kết thúc bằng một lượt tool dang dở (sẽ bị coi là thất bại và phải chạy lại tốn kém).
 
@@ -185,7 +196,7 @@ export const ReviewAgent = {
     }
     // cwd = worktree (đọc đúng code đã thay đổi); context overview + docs lấy từ repo gốc.
     const repoForContext = task.repo_path ?? config.GIT_REPO_PATH;
-    const docsGuidance = ProjectDocs.guidance(repoForContext, RepoRegistry.docsPathForTask(task));
+    const docsGuidance = ProjectDocs.guidance(repoForContext, RepoRegistry.docsPathForTask(task)) + RepoRegistry.contextGuidanceForTask(task);
     return this.runReviewOnDiff(task, diff, acceptanceCriteria, testCases, attempt, worktreePath, repoForContext, docsGuidance);
   },
 
@@ -215,7 +226,7 @@ export const ReviewAgent = {
 
     // Diff rỗng (sai dải / chưa push / range không chứa thay đổi) → KHÔNG cần worktree, FAIL "diff rỗng" ngay.
     if (!diff.trim()) {
-      const docsGuidance = ProjectDocs.guidance(repoPath, RepoRegistry.docsPathForTask(task));
+      const docsGuidance = ProjectDocs.guidance(repoPath, RepoRegistry.docsPathForTask(task)) + RepoRegistry.contextGuidanceForTask(task);
       return this.runReviewOnDiff(task, diff, acceptanceCriteria, testCases, attempt, repoPath, repoPath, docsGuidance);
     }
 
@@ -231,7 +242,7 @@ export const ReviewAgent = {
       const docsAbs = RepoRegistry.docsPathForTask(task);
       const rel = relative(repoPath, docsAbs);
       const docsForReview = rel && !rel.startsWith('..') ? join(reviewCwd, rel) : docsAbs;
-      const docsGuidance = ProjectDocs.guidance(reviewCwd, docsForReview);
+      const docsGuidance = ProjectDocs.guidance(reviewCwd, docsForReview) + RepoRegistry.contextGuidanceForTask(task);
 
       return await this.runReviewOnDiff(task, diff, acceptanceCriteria, testCases, attempt, reviewCwd, repoPath, docsGuidance);
     } finally {

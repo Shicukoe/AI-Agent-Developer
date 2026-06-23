@@ -44,6 +44,10 @@ AdminServer (supervisor) ── đọc SQLite chung; lệnh task (rerun/modify/c
 - **base branch theo từng repo** (dev/staging/main…), sửa được trong admin. Mọi nơi cần base branch tra
   `RepoConfigRepository.getById(task.repo_key)?.base_branch ?? GIT_DEFAULT_BASE_BRANCH`.
 - Task mang `repo_path`; mọi agent dùng `task.repo_path` (fallback `config.GIT_REPO_PATH`).
+- **Repo ngữ cảnh (chỉ đọc):** mỗi board có thể khai báo thêm `context_repo_paths` (cột repo_configs, nhập ở
+  admin) — các repo KHÁC mà agent được **Read/Glob/Grep để tra cứu** module liên quan (vd Permit) khi
+  task tham chiếu chéo. `RepoRegistry.contextGuidanceForTask` bơm chỉ dẫn vào prompt BA/Tech/Planner/Dev/Review.
+  **Vẫn 1 repo CHÍNH để ghi code/commit**; repo ngữ cảnh KHÔNG bị sửa.
 - Code: `src/repos/RepoRegistry.ts`, `src/state/RepoConfigRepository.ts`, `src/admin/routes/repos.ts`,
   UI `public/admin/repos.html` + `public/admin/js/repos.js`.
 
@@ -72,7 +76,6 @@ Tiêu chí + test_cases được lưu vào `task.metadata` (acceptance_criteria/
 vào reviewer. Mục **`## 🛠️ Ghi chú Dev`** để dev điền cách đã code + hướng test → reviewer đọc và test theo
 (xem mục Test).
 
-> `agents/RefineAgent.ts` và `agents/AnalystAgent.ts` là **code cũ, KHÔNG còn được gọi** (giữ tham khảo).
 
 Bổ sung thông tin rồi reply `REFINE` (hoặc `RETRY` khi card còn ở Refine) để chạy lại.
 
@@ -81,15 +84,20 @@ Bổ sung thông tin rồi reply `REFINE` (hoặc `RETRY` khi card còn ở Refi
 Nguồn tri thức là **tài liệu do người kiểm soát**, commit cùng code tại `docsPath` (mặc định
 `<repo>/docs`, hoặc cột `docs_path` trong repo_config / `PROJECT_DOCS_PATH`). KHÔNG còn cache tự sinh.
 
-- **`gen-docs`** (`src/scripts/gen-docs.ts`, `npm run gen-docs -- <board_id|repo_path> [--full]`, hoặc nút
-  **Generate docs** ở admin): agent khảo sát code rồi **GHI** `docs/00_TONG_THE.md` (tổng thể),
-  `docs/<chức-năng>.md` (mỗi feature/luồng), `docs/00_BAN_DO_TAI_LIEU.md` (bản đồ). Người **review + commit**.
-  - Việc agentic ĐỌC+GHI nhiều file → cần `GEN_DOCS_MAX_TURNS` (mặc định 60; CLI mặc định chỉ 8 = quá ít
-    khiến agent hết lượt trước khi ghi → docs/ rỗng) + `GEN_DOCS_TIMEOUT_MS`.
-  - **INCREMENTAL**: lưu mốc commit ở `docs/.docs_sync.json`; lần sau chỉ đọc commit MỚI (`<last>..HEAD`)
-    và cập nhật đúng doc bị ảnh hưởng (giữ cấu trúc chia file). Lần đầu/`--full` → sinh đầy đủ. Chỉ chạy KHI yêu cầu.
-  - docs_path mặc định `<repo_root>/docs`; repo có code trong module con (vd Odoo `cons_weekly_report/`) →
-    đặt **docs_path** = `cons_weekly_report/docs` trong admin cho khớp nơi team để docs.
+- **CHỈ MỤC tĩnh — `agents/IndexAgent.ts`** (`npm run index -- <board|path>`; cũng tự dựng trong gen-docs +
+  lazy ở `StageRouter.dispatch` nếu thiếu): grep TĨNH **không LLM** (~free token) → `docs/00_CHI_MUC.md` =
+  cây file + model + đăng ký component + template_name + class export + route → file nào. Agent **tra chỉ mục**
+  để biết "X nằm file nào" thay vì đọc/grep lặp. **Đa-ngôn-ngữ** (Class/Hàm/Export…) + mở rộng per-repo qua
+  `<repo>/.indexrc.json` (mảng `{label,pattern,globs}`) — KHÔNG hardcode 1 loại repo.
+- **`gen-docs`** (`src/scripts/gen-docs.ts`, `npm run gen-docs -- <board|path> [--full|--continue]`, hoặc nút
+  **Generate docs** ở admin): agent (vai **chuyên gia phân tích nghiệp vụ**) viết tài liệu **NGHIÊNG NGHIỆP VỤ**
+  (thay việc đọc cả repo): `00_TONG_THE.md` (tổng thể + **1 sơ đồ** Mermaid), `<chức-năng>.md` (nghiệp vụ + luồng
+  xử lý + 1 sơ đồ + dữ liệu + business rule + **con trỏ code, KHÔNG chép code**), `00_BAN_DO_TAI_LIEU.md`. "Thứ X
+  ở file nào" → để **`00_CHI_MUC.md`** lo (đỡ token). Người **review + commit**. Chạy bằng **Sonnet** (`CLAUDE_MODEL`).
+  - **3 chế độ:** mặc định = incremental theo commit (`docs/.docs_sync.json`, `<last>..HEAD`); `--full` = sinh
+    lại toàn bộ; `--continue` = GIỮ file đã có, chỉ viết THÊM doc cho chức năng còn thiếu.
+  - `GEN_DOCS_MAX_TURNS` (mặc định 120) + `GEN_DOCS_TIMEOUT_MS` (CLI mặc định 8 lượt = quá ít → docs rỗng).
+  - docs_path mặc định `<repo_root>/docs`; code trong module con → đặt **docs_path** trong admin cho khớp.
 - **`agents/ProjectDocs.ts`** `guidance(repoPath, docsPath)`: chèn chỉ dẫn vào prompt — agent **tự đọc**
   `00_TONG_THE.md` + `00_BAN_DO_TAI_LIEU.md` rồi Read feature doc liên quan (docs nằm trong cwd=repo).
 - **BA đọc CHỈ docs**; **Tech/Planner/Dev** đọc docs + code. **Thiếu docs → fallback đọc THẲNG mã nguồn**
@@ -149,7 +157,12 @@ Test PASS → tự merge vào integration branch. Card con kế thừa `repo_key
 
 - `claude/LlmClient.ts` định tuyến provider (`MODEL_*` = claude|gemini|openai). Provider `claude`:
   có `ANTHROPIC_API_KEY` → gọi **API**; không có → fallback **Claude CLI** (`ClaudeCliClient`, dùng
-  credentials `~/.claude`). DevAgent luôn spawn CLI (phiên agentic).
+  credentials `~/.claude`). DevAgent luôn spawn CLI (phiên agentic). `run/runForJson` nhận `model` override
+  (API: id; CLI: `--model`). ClaudeCliClient nhận sự kiện `result` (stream-json) là **kết thúc ngay + kill**
+  tiến trình (CLI hay treo sau khi xong → tránh chờ timeout).
+- **Chọn model (token):** đọc/hiểu card (Triage/BA/Tech) + gen-docs dùng **Sonnet** (`CLAUDE_MODEL`, truyền
+  `model` tường minh) — đủ & rẻ. **Review** dùng `REVIEW_MODEL` (trống = Sonnet; đặt `opus` khi cần bắt bug
+  tinh vi). DevAgent theo model của gói Claude CLI.
 - `runForJson` **thử lại tối đa 2 lần** khi output thiếu JSON (CLI đôi khi chỉ "chào rồi dừng"), nhắc
   cứng hơn ở lần 2. BA/Tech có **fallback** để 1 lần lỗi không giết cả task.
 - Timeout: Refine (BA/Tech/DocCard) = `REFINE_TIMEOUT_MS`; gen-docs = `GEN_DOCS_TIMEOUT_MS`;
@@ -205,7 +218,7 @@ Mô tả card ưu tiên khi mâu thuẫn. ReviewAgent cố ý không nạp memor
 | `supervisor.ts` + `supervisor/` | Entry đa-process: WorkerRegistry (fork/restart/reconcile) + ipc |
 | `worker.ts` | Vòng xử lý 1 dự án (poll board của mình, dispatch, dead-man, nhận lệnh admin IPC) |
 | `scripts/gen-docs.ts` | Sinh tài liệu dự án vào `<repo>/docs/` |
-| `agents/` | StageRouter, Triage, BusinessAnalyst, TechnicalRefiner, Planner, Dev, Review, EpicManager, CardMemory, ProjectDocs, Orchestrator(handleError), executors/ |
+| `agents/` | StageRouter, Triage, BusinessAnalyst, TechnicalRefiner, Planner, Dev, Review, Index, EpicManager, CardMemory, ProjectDocs, Orchestrator(handleError), executors/ |
 | `repos/` | RepoRegistry (đa-repo: resolveForBoard, listProjects, docsPathForTask) |
 | `trello/` | TrelloClient (REST), poller, webhook server, connector, types |
 | `claude/` | LlmClient (router claude/gemini/openai), ClaudeCliClient, PromptBuilder, conventions, claudeStream |

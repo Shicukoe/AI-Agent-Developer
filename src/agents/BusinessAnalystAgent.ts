@@ -15,7 +15,7 @@ const log = childLogger('business-analyst');
 function buildBaPrompt(card: TrelloCard, docsGuidance: string, memory: string, repoPath: string, docsExist: boolean): string {
   const base = PromptBuilder.planner(card, '', config.MODEL_REFINE, repoPath).replace(/\nAnalyze.*$/s, '');
   const sourceRule = docsExist
-    ? 'CHỈ đọc TÀI LIỆU dự án (docs) + card, KHÔNG đọc mã nguồn'
+    ? 'Hiểu nghiệp vụ qua TÀI LIỆU (docs) + card; ĐƯỢC PHÉP dùng Read/Glob/Grep để KIỂM CHỨNG khi task nhắc tới module/field/màn hình/dữ liệu cụ thể (có tồn tại/được tham chiếu trong repo không)'
     : 'CHƯA có docs → đọc TRỰC TIẾP mã nguồn (Read/Glob/Grep) + card để hiểu nghiệp vụ';
   return `Bạn là BUSINESS ANALYST. Phân tích yêu cầu theo góc NGHIỆP VỤ (người dùng muốn gì, vì sao) — CHƯA đi vào kỹ thuật.
 
@@ -31,6 +31,10 @@ ${memory}
    ràng buộc cách hiện thực. Đủ rộng để **mọi cách giải thoả điều kiện đều được chấp nhận** — tester sẽ
    chấm theo điều kiện này, nên đừng mô tả thành một cách làm cụ thể.
 3. Thiếu thông tin quan trọng → đặt \`open_questions\`, để \`confidence\` thấp (< 0.7).
+   ⚠️ TRƯỚC khi hỏi "X có tồn tại / có được dùng không" (vd module khác như "Permit", field, màn hình) →
+   **GREP repo kiểm tra trước**. Mỗi board chỉ map 1 repo: nếu X KHÔNG nằm trong repo này và KHÔNG được tham
+   chiếu → KHÔNG hỏi, mà KẾT LUẬN: yêu cầu kiểu "đừng phụ thuộc/độc lập với X" coi như đã thoả (nêu nguồn dữ
+   liệu THẬT trong repo nếu có). Chỉ hỏi khi thật sự cần thông tin NGOÀI repo mà không tự suy ra được.
 4. Nếu yêu cầu gồm NHIỀU đầu việc nghiệp vụ độc lập → liệt kê vào \`business_subtasks\`. KHÔNG tự tạo card. Nếu 1 việc đơn → [].
 5. Nếu dự án CHƯA có tài liệu (docs) → đặt \`docs_missing: true\`.
 6. ĐỊNH TUYẾN \`decision\` (mức nghiệp vụ): "trivial_solve" = thay đổi nhỏ rõ ràng, code ngay được;
@@ -68,14 +72,14 @@ export const BusinessAnalystAgent = {
     const docsExist = ProjectDocs.exists(docsPath);
     const card = await TrelloClient.getCard(task.card_id);
     const memory = await CardMemory.loadContext(task.card_id);
-    const docsGuidance = ProjectDocs.guidance(repoPath, docsPath);
+    const docsGuidance = ProjectDocs.guidance(repoPath, docsPath) + RepoRegistry.contextGuidanceForTask(task);
 
     let analyst: AnalystResponse;
     try {
       analyst = await LlmClient.runForJson<AnalystResponse>(
         buildBaPrompt(card, docsGuidance, memory, repoPath, docsExist),
         config.MODEL_REFINE,
-        { allowedTools: ['Read', 'Glob', 'Grep'], cwd: repoPath, maxTurns: 12, timeoutMs: config.REFINE_TIMEOUT_MS, label: `ba:${task.card_id.slice(0, 6)}` },
+        { allowedTools: ['Read', 'Glob', 'Grep'], cwd: repoPath, model: config.CLAUDE_MODEL, maxTurns: 12, timeoutMs: config.REFINE_TIMEOUT_MS, label: `ba:${task.card_id.slice(0, 6)}` },
       );
     } catch (err) {
       // CLI thi thoảng chỉ "chào" rồi dừng (không trả JSON). KHÔNG để crash cả task — fallback từ card.

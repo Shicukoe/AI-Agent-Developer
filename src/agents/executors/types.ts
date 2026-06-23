@@ -11,7 +11,7 @@ export interface Executor {
   run(task: Task): Promise<void>;
 }
 
-/** Đọc kind đã được phân loại (RefineAgent) từ metadata, mặc định 'code'. */
+/** Đọc kind đã được phân loại (TechnicalRefiner) từ metadata, mặc định 'code'. */
 export function taskKind(task: Task): TaskKind {
   if (!task.metadata) return 'code';
   try {

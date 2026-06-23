@@ -91,7 +91,7 @@ export const PlannerAgent = {
     const epicId = CardMemory.parseEpicId(card.desc);
     if (epicId) memoryContext += await CardMemory.epicContext(epicId);
 
-    const cacheSummary = ProjectDocs.guidance(repoPath, RepoRegistry.docsPathForTask(task));
+    const cacheSummary = ProjectDocs.guidance(repoPath, RepoRegistry.docsPathForTask(task)) + RepoRegistry.contextGuidanceForTask(task);
     const plan = await LlmClient.runForJson<PlanResponse>(
       buildPlannerPrompt(card, codeContext + attachmentContext, repoPath, modifyInstruction, memoryContext, cacheSummary),
       config.MODEL_PLANNING,

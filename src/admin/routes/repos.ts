@@ -21,6 +21,15 @@ function wrap(fn: (req: Request, res: Response) => Promise<void>) {
   };
 }
 
+/** Chuẩn hoá danh sách repo ngữ cảnh về JSON array string (nhận mảng hoặc chuỗi nhiều dòng/;). undefined nếu rỗng. */
+function normalizeContextPaths(raw: unknown): string | undefined {
+  let arr: string[] = [];
+  if (Array.isArray(raw)) arr = raw.map(s => String(s).trim());
+  else if (typeof raw === 'string') arr = raw.split(/[\r\n;]+/).map(s => s.trim());
+  arr = arr.filter(Boolean);
+  return arr.length ? JSON.stringify(arr) : undefined;
+}
+
 /** Kiểm tra path repo: tồn tại + là git repo (có .git). Trả thông báo lỗi hoặc null nếu OK. */
 function validateRepoPath(repoPath: string): string | null {
   if (!repoPath) return 'Thiếu repo_path.';
@@ -65,6 +74,7 @@ export function reposRouter(registry: WorkerRegistry): Router {
       base_branch: base_branch ? String(base_branch) : undefined,
       enabled: enabled === false ? false : true,
       docs_path: docs_path ? String(docs_path) : undefined,
+      context_repo_paths: normalizeContextPaths(req.body?.context_repo_paths),
     });
     log.info({ boardId: row.board_id, repoPath: row.repo_path }, 'Repo config created');
     registry.reconcile();   // spawn worker cho dự án mới
@@ -103,6 +113,7 @@ export function reposRouter(registry: WorkerRegistry): Router {
     if (base_branch !== undefined) patch.base_branch = String(base_branch);
     if (enabled !== undefined) patch.enabled = enabled ? 1 : 0;
     if (docs_path !== undefined) patch.docs_path = String(docs_path).trim() || null;
+    if (req.body?.context_repo_paths !== undefined) patch.context_repo_paths = normalizeContextPaths(req.body.context_repo_paths) ?? null;
     RepoConfigRepository.update(existing.id, patch);
     registry.reconcile();   // restart worker nếu repo/branch/docs/enabled đổi
     res.json({ ok: true, item: RepoConfigRepository.getById(existing.id) });

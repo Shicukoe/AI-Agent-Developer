@@ -13,7 +13,7 @@ export interface VisualAnalysis {
 }
 
 // Vision API not used — attachments are described by metadata.
-// Claude CLI DevAgent/AnalystAgent can follow up by reading the attachment URLs if needed.
+// Claude CLI DevAgent/BusinessAnalyst can follow up by reading the attachment URLs if needed.
 export const DesignAnalyzer = {
   async analyzeDesignAttachments(attachments: TrelloAttachment[], _codeContext: string): Promise<string> {
     if (attachments.length === 0) return '(no attachments)';
