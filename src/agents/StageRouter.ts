@@ -17,6 +17,8 @@ import { taskKind } from './executors/types.js';
 import { pickExecutor } from './executors/registry.js';
 import { ReviewAgent } from './ReviewAgent.js';
 import { IndexAgent } from './IndexAgent.js';
+import { generateFrameworkRules } from '../scripts/gen-framework-rules.js';
+import { withKeyedLock } from '../utils/keyedMutex.js';
 import { CardMemory } from './CardMemory.js';
 import { EpicManager } from './EpicManager.js';
 import { OrchestratorAgent } from './OrchestratorAgent.js';
@@ -81,6 +83,17 @@ export const StageRouter = {
       // Chỉ mục tĩnh (grep, rẻ) — dựng nếu chưa có để agent TRA thay vì đọc lặp. Lỗi không chặn task.
       const idxPath = join(repo.docsPath, '00_CHI_MUC.md');
       if (!existsSync(idxPath)) await IndexAgent.build(repo.repoPath, idxPath).catch(() => {});
+
+      // SỔ LUẬT FRAMEWORK — TỰ tạo MỘT LẦN/repo khi thiếu (tri thức để ReviewAgent test đúng). Đây là LLM
+      // run nặng → fire-and-forget + khóa theo repo (re-check trong khóa để chỉ chạy 1 lần), KHÔNG chặn task.
+      const rulesPath = join(repo.docsPath, '00_FRAMEWORK_RULES.md');
+      if (!existsSync(rulesPath)) {
+        void withKeyedLock(`genrules:${repo.repoPath}`, async () => {
+          if (existsSync(rulesPath)) return;                       // repo khác đã sinh xong trong lúc chờ khóa
+          log.info({ repoPath: repo.repoPath }, 'Sổ luật framework chưa có → tự sinh nền (1 lần)');
+          await generateFrameworkRules(repo.repoPath, repo.docsPath);
+        }).catch(err => log.warn({ repoPath: repo.repoPath, err: (err as Error).message }, 'Tự sinh Sổ luật framework lỗi (bỏ qua)'));
+      }
 
       const fresh = TaskRepository.findById(task.id)!;
       // Báo cho người dùng biết agent đã nhận task và bắt đầu xử lý (job vừa rời hàng đợi).
@@ -557,8 +570,15 @@ export const StageRouter = {
             expr = `${last}..origin/${branch}`;
             label = `commit mới trên \`${branch}\` (\`${last.slice(0, 8)}\`..\`${head.slice(0, 8)}\`)`;
           } else {
-            expr = `origin/${baseBranch}...origin/${branch}`;
-            label = `nhánh \`${branch}\` so với \`${baseBranch}\` (lần đầu)`;
+            // LẦN ĐẦU (chưa có mốc): chỉ review N NGÀY mới nhất, tránh diff cả dải base...branch khổng lồ.
+            const dayBase = await GitClient.recentDaysBase(repoPath, `origin/${branch}`, config.REVIEW_AUTODETECT_DAYS);
+            if (dayBase) {
+              expr = `${dayBase}..origin/${branch}`;
+              label = `commit ${config.REVIEW_AUTODETECT_DAYS} ngày mới nhất trên \`${branch}\` (\`${dayBase.slice(0, 8)}\`..\`${head?.slice(0, 8) ?? branch}\`) — muốn rộng hơn: ghi \`Base:\`/\`Range:\``;
+            } else {
+              expr = `origin/${baseBranch}...origin/${branch}`;
+              label = `nhánh \`${branch}\` so với \`${baseBranch}\` (lần đầu)`;
+            }
           }
           markBranch = branch; markHead = head;
         }
@@ -613,6 +633,11 @@ async function autoDetectReviewBranch(repoPath: string): Promise<string | null> 
 /** Heading mục Ghi chú Dev — DevAgent/tester dùng chung để ghi & đọc (F2). */
 const DEV_NOTE_HEADING = '## 🛠️ Ghi chú Dev (cách đã làm & hướng test)';
 const DEV_NOTE_PLACEHOLDER = '_(Dev điền sau khi code: đã sửa gì, vì sao, tester nên kiểm theo luồng nào — hoặc viết comment bắt đầu bằng `DEV:`)_';
+/** Nhắc nhở ĐẬM: dev PHẢI ghi nhánh vào mô tả trước khi kéo sang Test (chống auto-dò cả dải lớn → chậm/tốn token/sai). */
+const DEV_NOTE_BRANCH_REMINDER = `> 🚨 **TRƯỚC KHI KÉO SANG \`Test\` — DEV BẮT BUỘC GHI NHÁNH VÀO MÔ TẢ NÀY.**
+> ❗ Không ghi → agent phải TỰ DÒ và review **CẢ DẢI LỚN** (CHẬM · TỐN TOKEN · DỄ SAI verdict).
+> - **\`Branch: <tên-nhánh>\`** — review commit MỚI của nhánh (vd \`Branch: NgocLuan2\`).
+> - Muốn soi ĐÚNG dải: thêm **\`Base: <nhánh-gốc>\`** (so nhánh CHƯA chứa thay đổi) **hoặc** **\`Range: <sha-cũ>..<nhánh>\`**.`;
 const ORIGINAL_HEADING = '## 📌 Yêu cầu gốc (giữ nguyên)';
 
 /** Lấy phần "yêu cầu gốc" để không lồng marker khi refine lại; không có marker → cả desc. */
@@ -633,6 +658,8 @@ ${ac}
 
 ${DEV_NOTE_HEADING}
 ${DEV_NOTE_PLACEHOLDER}
+
+${DEV_NOTE_BRANCH_REMINDER}
 
 ---
 ${ORIGINAL_HEADING}

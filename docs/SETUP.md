@@ -53,6 +53,51 @@ ADMIN_API_TOKEN=dat-mot-chuoi-manh
 
 ---
 
+## 3b. Chọn model theo khâu (tùy chọn — **mặc định toàn Claude**)
+
+**Không điền gì = mọi khâu chạy Claude** (model `CLAUDE_MODEL`, mặc định `claude-sonnet-4-6`). Chỉ đụng tới
+khi muốn đổi provider/model cho một khâu (vd cho BA rẻ bằng Gemini, giữ Review nặng bằng Claude Opus).
+
+Có **2 lớp** cấu hình, mỗi khâu một cặp:
+
+| Khâu | Provider (claude\|gemini\|openai) | Model-id (trống = mặc định provider) |
+|---|---|---|
+| Triage (lọc task tí hon) | `MODEL_TRIAGE` | `TRIAGE_MODEL` |
+| Refine — BA + Tech | `MODEL_REFINE` | `REFINE_MODEL` |
+| Planning thường | `MODEL_PLANNING` | `PLANNING_MODEL` |
+| Epic (kế hoạch lớn) | `MODEL_PLANNING` | `EPIC_MODEL` |
+| Dev (code) | `MODEL_DEV` | `DEV_MODEL` (chỉ khi ≠claude) |
+| Test/Review | `MODEL_TEST` | `REVIEW_MODEL` |
+| gen-docs / gen-rules / index | `MODEL_INDEXER` | `DOCS_MODEL` |
+
+**Quy tắc điền:**
+1. **Model-id trống** → tự dùng model mặc định của provider khâu đó: claude→`CLAUDE_MODEL`,
+   gemini→`GEMINI_MODEL`, openai→`OPENAI_MODEL`.
+2. **Model-id phải KHỚP provider.** Đặt `MODEL_REFINE=gemini` thì `REFINE_MODEL` nên là id Gemini
+   (vd `gemini-2.0-flash`). Nếu lỡ để id Claude khi provider=gemini, hệ **tự thay bằng `GEMINI_MODEL`**
+   (không gửi nhầm id gây lỗi) — nên cứ để trống là an toàn nhất.
+3. Đổi provider nào thì điền **API key** tương ứng: `GEMINI_API_KEY` / `OPENAI_API_KEY`.
+
+**Ví dụ A — giữ mặc định (toàn Claude):** không thêm dòng nào. Xong.
+
+**Ví dụ B — BA/Tech bằng Gemini (rẻ), còn lại Claude:**
+```ini
+GEMINI_API_KEY=AIza...
+MODEL_REFINE=gemini
+REFINE_MODEL=gemini-2.0-flash    # hoặc để trống → dùng GEMINI_MODEL
+```
+
+**Ví dụ C — Review bằng Claude Opus (nặng), Triage Haiku, còn lại Sonnet:**
+```ini
+REVIEW_MODEL=claude-opus-4-8     # MODEL_TEST vẫn = claude
+TRIAGE_MODEL=claude-haiku-4-5-20251001
+```
+
+> **Lưu ý Dev:** `MODEL_DEV=claude` chạy **Claude CLI** (phiên agentic xịn, theo model gói CLI — `DEV_MODEL`
+> không áp dụng). `MODEL_DEV=gemini/openai` chạy vòng agentic nội bộ (yếu hơn Claude Code) với `DEV_MODEL`.
+
+---
+
 ## 4. Chuẩn bị board Trello
 
 1. Tạo board, tạo các list: **Refine, Planning, Dev, Test, Epic, Info** (đúng tên, không phân biệt hoa thường).

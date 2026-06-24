@@ -82,6 +82,25 @@ export const GitClient = {
     } catch { return []; }
   },
 
+  /**
+   * SHA mốc để chỉ review commit của `days` NGÀY mới nhất trên `ref`: trả commit MỚI NHẤT TRƯỚC nửa đêm của
+   * (ngày commit cuối − (days−1)). Dùng làm base: `base..ref` = các commit trong cửa sổ N ngày gần nhất.
+   * Null nếu không tính được (vd toàn bộ lịch sử nằm trong cửa sổ) → caller fallback dải khác.
+   */
+  async recentDaysBase(repoPath: string, ref: string, days = 1): Promise<string | null> {
+    try {
+      const { stdout: d } = await ShellExecutor.git(['log', '-1', '--date=short', '--pretty=%ad', ref], repoPath);
+      const latest = d.trim();
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(latest)) return null;
+      const [y, m, dd] = latest.split('-').map(Number);
+      const start = new Date(Date.UTC(y, m - 1, dd));
+      start.setUTCDate(start.getUTCDate() - (Math.max(1, days) - 1));   // lùi (days-1) ngày
+      const ws = start.toISOString().slice(0, 10);
+      const { stdout: base } = await ShellExecutor.git(['rev-list', '-1', `--before=${ws} 00:00:00`, ref], repoPath);
+      return base.trim() || null;
+    } catch { return null; }
+  },
+
   /** Diff theo biểu thức range tuỳ ý (vd "a..b", "dev...staging", "<sha>..staging"). */
   async getDiffExpr(repoPath: string, expr: string): Promise<string> {
     const { stdout } = await ShellExecutor.git(['diff', expr], repoPath);

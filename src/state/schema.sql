@@ -109,6 +109,29 @@ CREATE TABLE IF NOT EXISTS review_results (
   reviewed_at  INTEGER NOT NULL
 );
 
+-- Usage token/chi phí mỗi lượt gọi LLM (append-only). Worker ghi, admin đọc gộp (đa-process qua DB chung).
+CREATE TABLE IF NOT EXISTS usage_events (
+  id            TEXT PRIMARY KEY,
+  task_key      TEXT,            -- key gộp theo card (hậu tố sau ':' của label) — null nếu không rõ
+  label         TEXT,            -- nhãn gốc vd "plan:abc123"
+  stage         TEXT,            -- phần trước ':' của label (refine/plan/dev/test/triage…)
+  provider      TEXT,            -- claude | gemini | openai
+  model         TEXT,            -- model-id đã dùng
+  source        TEXT,            -- api | cli | gemini | openai (nguồn đo)
+  input_tokens  INTEGER NOT NULL DEFAULT 0,   -- ĐÃ gồm cache
+  output_tokens INTEGER NOT NULL DEFAULT 0,
+  cache_read    INTEGER NOT NULL DEFAULT 0,
+  cache_write   INTEGER NOT NULL DEFAULT 0,
+  cost_usd      REAL NOT NULL DEFAULT 0,       -- giá API quy đổi (KHÔNG phải % gói thuê bao)
+  cost_estimated INTEGER NOT NULL DEFAULT 1,   -- 1 = ước tính qua bảng giá; 0 = số thật do nguồn báo (CLI)
+  repo_key      TEXT,
+  created_at    INTEGER NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_usage_task    ON usage_events(task_key);
+CREATE INDEX IF NOT EXISTS idx_usage_created ON usage_events(created_at);
+CREATE INDEX IF NOT EXISTS idx_usage_model   ON usage_events(model);
+
 -- Trello poller state (last seen action per board)
 CREATE TABLE IF NOT EXISTS poller_state (
   board_id          TEXT PRIMARY KEY,

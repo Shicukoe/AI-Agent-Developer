@@ -72,7 +72,7 @@ estimated_complexity is 1-10. Break large work into 2-5 focused sub-tasks.`;
 }
 
 export const PlannerAgent = {
-  async run(task: Task, modifyInstruction?: string, model: string = config.CLAUDE_MODEL): Promise<PlanResponse> {
+  async run(task: Task, modifyInstruction?: string, model: string = config.PLANNING_MODEL): Promise<PlanResponse> {
     log.info({ taskId: task.id }, 'PlannerAgent starting');
 
     const repoPath = task.repo_path ?? config.GIT_REPO_PATH;
@@ -91,7 +91,8 @@ export const PlannerAgent = {
     const epicId = CardMemory.parseEpicId(card.desc);
     if (epicId) memoryContext += await CardMemory.epicContext(epicId);
 
-    const cacheSummary = ProjectDocs.guidance(repoPath, RepoRegistry.docsPathForTask(task)) + RepoRegistry.contextGuidanceForTask(task);
+    const cacheSummary = ProjectDocs.frameworkRules(RepoRegistry.docsPathForTask(task))
+      + ProjectDocs.guidance(repoPath, RepoRegistry.docsPathForTask(task)) + RepoRegistry.contextGuidanceForTask(task);
     const plan = await LlmClient.runForJson<PlanResponse>(
       buildPlannerPrompt(card, codeContext + attachmentContext, repoPath, modifyInstruction, memoryContext, cacheSummary),
       config.MODEL_PLANNING,

@@ -127,6 +127,11 @@ ${testCasesBlock(tech)}
 ## 🛠️ Ghi chú Dev (cách đã làm & hướng test)
 _(Dev điền sau khi code: đã sửa gì, vì sao, tester nên kiểm theo luồng nào — hoặc viết comment bắt đầu bằng \`DEV:\`)_
 
+> 🚨 **TRƯỚC KHI KÉO SANG \`Test\` — DEV BẮT BUỘC GHI NHÁNH VÀO MÔ TẢ NÀY.**
+> ❗ Không ghi → agent phải TỰ DÒ và review **CẢ DẢI LỚN** (CHẬM · TỐN TOKEN · DỄ SAI verdict).
+> - **\`Branch: <tên-nhánh>\`** — review commit MỚI của nhánh (vd \`Branch: NgocLuan2\`).
+> - Muốn soi ĐÚNG dải: thêm **\`Base: <nhánh-gốc>\`** (so nhánh CHƯA chứa thay đổi) **hoặc** **\`Range: <sha-cũ>..<nhánh>\`**.
+
 ---
 ${ORIGINAL_MARKER}
 ${original || '(trống)'}`;
@@ -150,14 +155,15 @@ export const TechnicalRefinerAgent = {
     let memory = await CardMemory.loadContext(task.card_id);
     const epicId = CardMemory.parseEpicId(card.desc);
     if (epicId) memory += await CardMemory.epicContext(epicId);
-    const cacheSummary = ProjectDocs.guidance(repoPath, RepoRegistry.docsPathForTask(task)) + RepoRegistry.contextGuidanceForTask(task);
+    const cacheSummary = ProjectDocs.frameworkRules(RepoRegistry.docsPathForTask(task))
+      + ProjectDocs.guidance(repoPath, RepoRegistry.docsPathForTask(task)) + RepoRegistry.contextGuidanceForTask(task);
 
     let tech: TechRefineResponse;
     try {
       tech = await LlmClient.runForJson<TechRefineResponse>(
         buildTechPrompt(card, analystResp, memory, cacheSummary, repoPath),
         config.MODEL_REFINE,
-        { allowedTools: ['Read', 'Glob', 'Grep'], cwd: repoPath, model: config.CLAUDE_MODEL, maxTurns: 15, timeoutMs: config.REFINE_TIMEOUT_MS, label: `tech:${task.card_id.slice(0, 6)}` },
+        { allowedTools: ['Read', 'Glob', 'Grep'], cwd: repoPath, model: config.REFINE_MODEL, maxTurns: 15, timeoutMs: config.REFINE_TIMEOUT_MS, label: `tech:${task.card_id.slice(0, 6)}` },
       );
     } catch (err) {
       // CLI không trả JSON → KHÔNG crash. Định tuyến sang Planning để lập kế hoạch đầy đủ (an toàn).

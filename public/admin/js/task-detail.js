@@ -51,6 +51,19 @@
       field('Worktree', t.worktree_path ? '<span class="fs-12">' + U.escapeHtml(t.worktree_path) + '</span>' : '—') +
       '</div></div></div>';
 
+    // Token của task (qua mọi khâu refine/plan/dev/test)
+    var us = data.usage;
+    if (us && us.calls) {
+      var totalTok = (us.input || 0) + (us.output || 0);
+      html += '<div class="card mb-3"><div class="card-body"><h6 class="mb-3"><i class="bi bi-coin me-1 text-theme"></i>Token (task này)</h6><div class="row">' +
+        field('Tổng token', '<strong>' + U.fmtNum(totalTok) + '</strong>') +
+        field('Input (gồm cache)', U.fmtNum(us.input)) +
+        field('Output', U.fmtNum(us.output)) +
+        field('Cache read', U.fmtNum(us.cacheRead)) +
+        field('Số lượt gọi', us.calls) +
+        '</div></div></div>';
+    }
+
     // Review results
     if (data.reviews && data.reviews.length) {
       html += '<div class="card mb-3"><div class="card-body"><h6 class="mb-3">Kết quả review</h6>' +

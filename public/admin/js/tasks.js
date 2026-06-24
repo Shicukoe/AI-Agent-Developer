@@ -47,6 +47,103 @@
     }
   }
 
+  // Nhãn + icon + màu (gradient) cho từng khâu. Khớp prefix label trong *Agent.ts.
+  var STAGE_META = {
+    triage: { label: 'Phân loại', icon: 'bi-filter-circle', c1: '#6366f1', c2: '#8b5cf6' },
+    ba:     { label: 'Phân tích nghiệp vụ', icon: 'bi-clipboard-data', c1: '#0ea5e9', c2: '#22d3ee' },
+    tech:   { label: 'Refine kỹ thuật', icon: 'bi-gear-wide-connected', c1: '#06b6d4', c2: '#14b8a6' },
+    plan:   { label: 'Lập kế hoạch', icon: 'bi-diagram-3', c1: '#3b82f6', c2: '#6366f1' },
+    dev:    { label: 'Lập trình (Dev)', icon: 'bi-code-slash', c1: '#2563eb', c2: '#0ea5e9' },
+    review: { label: 'Kiểm thử (Review)', icon: 'bi-shield-check', c1: '#16a34a', c2: '#4ade80' },
+    doc:    { label: 'Tài liệu', icon: 'bi-journal-text', c1: '#f59e0b', c2: '#fbbf24' },
+  };
+  function stageMeta(k) {
+    return STAGE_META[k] || { label: k || '(khác)', icon: 'bi-dot', c1: '#64748b', c2: '#94a3b8' };
+  }
+
+  async function loadUsage() {
+    var body = document.getElementById('usageBody');
+    var hint = document.getElementById('usageHint');
+    try {
+      var u = await AdminApi.get('/usage');
+      var s = u.session || {};
+      hint.textContent = (s.calls || 0) + ' lượt gọi trong ' + (s.hours || 5) + 'h';
+
+      body.innerHTML =
+        '<div class="row g-3 align-items-stretch">' +
+          '<div class="col-12 col-lg-4">' + sessionPanel(s) + '</div>' +
+          '<div class="col-12 col-lg-8">' + stagePanel(u.byStage || [], u.stagesTotal || 0) + '</div>' +
+        '</div>';
+    } catch (err) {
+      body.innerHTML = '<div class="text-danger">Không tải được usage: ' + U.escapeHtml(err.message) + '</div>';
+    }
+  }
+
+  // Vòng tròn % cửa sổ 5h (conic-gradient). Nguồn ccusage = block 5h thật; fallback = tự đo từ DB.
+  function sessionPanel(s) {
+    var has = s.pct != null;
+    var pct = has ? Math.round(s.pct) : 0;
+    var ring = has ? pct : 100;
+    var col = pct >= 90 ? '#ef4444' : pct >= 70 ? '#f59e0b' : 'var(--ap-accent, #2563eb)';
+    var center = has
+      ? '<div class="ap-gauge-num">' + pct + '<span class="ap-gauge-pct">%</span></div>'
+      : '<div class="ap-gauge-num" style="font-size:1.05rem">' + U.fmtTokens(s.tokens) + '</div>';
+    var sub = has
+      ? U.fmtTokens(s.tokens) + ' / ' + U.fmtTokens(s.limitTokens) + ' token thật'
+      : '<span class="text-warning fs-12">trần chưa có — đặt USAGE_SESSION_LIMIT_TOKENS</span>';
+
+    // Dòng phụ: thời gian còn lại trong block (ccusage).
+    var extra = '';
+    if (s.remainingMinutes != null) {
+      var h = Math.floor(s.remainingMinutes / 60), mm = s.remainingMinutes % 60;
+      extra += '<div class="fs-12 mt-1"><i class="bi bi-clock-history me-1 text-theme"></i>còn ' +
+        (h > 0 ? h + 'h' : '') + mm + 'p trong block</div>';
+    }
+    // Cache chỉ ghi chú nhỏ để biết — KHÔNG tính vào % (đọc lại, rất rẻ).
+    var cacheNote = s.cacheRead
+      ? '<div class="text-secondary fs-12">cache đọc lại ' + U.fmtTokens(s.cacheRead) + ' (không tính)</div>' : '';
+    var srcBadge = s.source === 'ccusage'
+      ? '<span class="badge bg-light-green text-success fs-12">ccusage · block 5h thật</span>'
+      : '<span class="badge bg-light-theme text-theme fs-12">tự đo (DB)</span>';
+    var limTag = (has && s.limitSource === 'auto-max')
+      ? '<div class="text-secondary fs-12 mt-1">trần tự hiệu chỉnh theo block in+out cao nhất</div>' : '';
+
+    return '<div class="ap-tile h-100 d-flex flex-column align-items-center justify-content-center text-center p-3">' +
+      '<div class="text-secondary small fw-semibold mb-2"><i class="bi bi-hourglass-split me-1"></i>Cửa sổ session ' + (s.hours || 5) + 'h · token thật (in+out)</div>' +
+      '<div class="ap-gauge" style="background:conic-gradient(' + col + ' ' + (ring * 3.6) + 'deg,#e9edf5 0)">' +
+        '<div class="ap-gauge-hole">' + center + '</div>' +
+      '</div>' +
+      '<div class="small mt-2 fw-semibold">' + sub + '</div>' +
+      '<div class="text-secondary fs-12 mt-1">in ' + U.fmtTokens(s.input) + ' · out ' + U.fmtTokens(s.output) + '</div>' +
+      cacheNote + extra + limTag +
+      '<div class="mt-2">' + srcBadge + '</div>' +
+      '</div>';
+  }
+
+  // Thanh token theo khâu (gradient), sắp xếp nhiều → ít.
+  function stagePanel(rows, total) {
+    if (!rows.length) {
+      return '<div class="ap-tile h-100 d-flex align-items-center justify-content-center text-secondary p-4">Chưa có dữ liệu token. Chạy vài card để bắt đầu đo.</div>';
+    }
+    var max = rows.reduce(function (m, r) { return Math.max(m, r.tokens); }, 0) || 1;
+    var bars = rows.map(function (r) {
+      var m = stageMeta(r.stage);
+      var w = Math.max(3, Math.round(r.tokens / max * 100));
+      var share = total > 0 ? Math.round(r.tokens / total * 100) : 0;
+      return '<div class="ap-stage">' +
+        '<div class="ap-stage-head">' +
+          '<span class="ap-stage-name"><span class="ap-stage-ic" style="background:linear-gradient(135deg,' + m.c1 + ',' + m.c2 + ')"><i class="bi ' + m.icon + '"></i></span>' + U.escapeHtml(m.label) + '</span>' +
+          '<span class="ap-stage-val">' + U.fmtTokens(r.tokens) + ' <span class="text-secondary fs-12">· ' + share + '%</span></span>' +
+        '</div>' +
+        '<div class="ap-bar"><div class="ap-bar-fill" style="width:' + w + '%;background:linear-gradient(90deg,' + m.c1 + ',' + m.c2 + ')"></div></div>' +
+        '<div class="text-secondary fs-12 mt-1">in ' + U.fmtTokens(r.input) + ' · out ' + U.fmtTokens(r.output) + ' · ' + r.calls + ' lượt</div>' +
+        '</div>';
+    }).join('');
+    return '<div class="ap-tile h-100 p-3">' +
+      '<div class="text-secondary small fw-semibold mb-3"><i class="bi bi-bar-chart-steps me-1"></i>Token thật theo khâu (in+out, bỏ cache) · tổng ' + U.fmtTokens(total) + '</div>' +
+      bars + '</div>';
+  }
+
   async function loadTasks() {
     var body = document.getElementById('tasksBody');
     body.innerHTML = '<tr><td colspan="7" class="text-center text-secondary py-4">Đang tải…</td></tr>';
@@ -87,7 +184,7 @@
       '</tr>';
   }
 
-  function refresh() { loadStats(); loadTasks(); }
+  function refresh() { loadStats(); loadUsage(); loadTasks(); }
 
   document.addEventListener('DOMContentLoaded', function () {
     // Bộ lọc

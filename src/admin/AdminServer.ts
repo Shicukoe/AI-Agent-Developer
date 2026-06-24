@@ -8,6 +8,7 @@ import { childLogger } from '../utils/logger.js';
 import { requireAdminToken } from './auth.js';
 import { tasksRouter } from './routes/tasks.js';
 import { reposRouter } from './routes/repos.js';
+import { usageRouter } from './routes/usage.js';
 import type { WorkerRegistry } from '../supervisor/WorkerRegistry.js';
 
 const log = childLogger('admin-server');
@@ -37,6 +38,7 @@ export class AdminServer {
     // Lệnh task chạy ở worker (qua registry/IPC); CRUD repo gọi registry.reconcile().
     this.app.use('/admin/api', requireAdminToken, tasksRouter(registry));
     this.app.use('/admin/api', requireAdminToken, reposRouter(registry));
+    this.app.use('/admin/api', requireAdminToken, usageRouter());
 
     // UI tĩnh từ template WinDOORS đã nhúng.
     const publicDir = resolvePublicDir();

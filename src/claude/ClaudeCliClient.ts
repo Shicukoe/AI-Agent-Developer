@@ -109,7 +109,7 @@ export const ClaudeCliClient = {
     // nhận event này thì kết thúc ngay + kill tiến trình, tránh chờ vô ích / timeout sai.
     let resolveDone: (() => void) | null = null;
     const doneEvent = new Promise<'done'>(resolve => { resolveDone = () => resolve('done'); });
-    const handler = makeStreamHandler(tag, opts?.label, opts?.onActivity, () => resolveDone?.());
+    const handler = makeStreamHandler(tag, opts?.label, opts?.onActivity, () => resolveDone?.(), opts?.model);
 
     // Strip ANTHROPIC_API_KEY so Claude CLI uses its own stored credentials (~/.claude)
     const { ANTHROPIC_API_KEY: _unused, ...cleanEnv } = process.env;

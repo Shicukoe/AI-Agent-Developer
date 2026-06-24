@@ -110,12 +110,16 @@ ${docsGuidance}
 
 ## Trước khi kết luận PHỦ ĐỊNH ("thiếu / chưa đăng ký / chưa dùng / không tìm thấy / chưa cấu hình")
 Đây là nguồn FAIL OAN phổ biến nhất, nhưng ĐỪNG đọc lại cả repo (tốn token). Quy trình RẺ:
-1. **Tra CHỈ MỤC + DOCS trước** — \`docs/00_CHI_MUC.md\` (chỉ mục grep: model/component/đăng ký/template_name/
-   route → file nào) + feature doc liên quan + \`00_TONG_THE.md\`. Thường trả lời ngay "X nằm/được wired ở đâu".
-2. Docs CHƯA đủ → chạy **1–2 lệnh grep CÓ MỤC TIÊU** đúng ký hiệu (tên class, \`registry...add\`, \`template_name\`,
-   \`import\`, \`ref\` id) trên TOÀN repo — KHÔNG đọc tràn lan từng file.
-3. Một tính năng RẤT HAY nằm ở **module/báo cáo KHÁC** với chỗ bạn đoán (vd đăng ký ở \`safety_working\` chứ
-   không phải \`assessment_environment\`). Tìm thấy ở nơi khác = **ĐÃ CÓ (không phải lỗi)**.
+1. **ĐỌC SỔ LUẬT + tra BẢN ĐỒ RESOLVE trước** — \`docs/00_FRAMEWORK_RULES.md\` cho biết framework chọn hành
+   vi/giao diện thế nào (thường qua DỮ LIỆU/đăng ký/quy ước, KHÔNG qua if/else); \`docs/00_CHI_MUC.md\` có
+   **Bản đồ resolve** (vd \`item → type_id → template_name → component\`) + chỉ mục ký hiệu→file. **LẦN ĐÚNG
+   CẢ CHUỖI RESOLVE** tới mắt xích cuối (component/handler thực thi) rồi mới kết luận — **đừng** đi tìm "code
+   viết riêng cho từng màn/báo cáo". Đa số kết luận "thiếu/chưa wired" SAI là vì dừng giữa chuỗi.
+2. Sổ luật/bản đồ CHƯA đủ → chạy **1–2 lệnh grep CÓ MỤC TIÊU** đúng ký hiệu (tên class, \`registry...add\`,
+   \`template_name\`, \`import\`, \`ref\` id) trên TOÀN repo — KHÔNG đọc tràn lan từng file.
+3. Một định nghĩa DÙNG CHUNG (item type / base class / component) được NHIỀU báo cáo tái dùng: sửa 1 chỗ là
+   áp cho TẤT CẢ. Tính năng RẤT HAY nằm ở **module/báo cáo KHÁC** với chỗ bạn đoán. Tìm thấy ở nơi khác,
+   hoặc resolve TỚI thành phần đã có tính năng = **ĐÃ CÓ (không phải lỗi)**.
 4. Đã tra docs + grep mục tiêu mà vẫn KHÔNG chắc → **NEEDS_INFO**, ĐỪNG FAIL. Tuyệt đối đừng kết luận "không có"
    chỉ vì xem 1 file/1 module. (Docs càng chi tiết → càng ít phải grep → càng rẻ.)
 - **BẮT BUỘC** kết thúc câu trả lời bằng DUY NHẤT khối JSON kết quả (kể cả khi chưa chắc → \`NEEDS_INFO\`).
@@ -149,6 +153,24 @@ HỢP LỆ, tuyệt đối đừng bắt lỗi chỉ vì "khác spec". Chỉ khi
 - **Tie-break:** khi phân vân giữa FAIL và NEEDS_INFO → CHỌN **NEEDS_INFO**. Chỉ FAIL khi CHẮC CHẮN mục tiêu
   không đạt. Mục tiêu suy ra từ **🎯 yêu cầu nghiệp vụ + 📌 yêu cầu gốc** của card (đọc kỹ phần này trước).
 
+## CHẤM theo HÀNH VI (TRACE đường code), KHÔNG theo "diff có sửa dòng đó không"
+Verdict trả lời DUY NHẤT 1 câu hỏi: **các tiêu chí nghiệm thu CÓ ĐÚNG trong code đang review không?** — KHÔNG
+phải "diff có đụng đúng dòng không". Với MỖI tiêu chí:
+1. **TRACE đường đi THỰC TẾ của code** quyết định tiêu chí, tới mắt xích cuối (vd: nút Xóa con → handler UI
+   truyền **id NÀO** → hàm backend xử lý id đó → kết quả). Kết luận theo code THỰC SỰ làm:
+   - Trace cho thấy tiêu chí **ĐÚNG** → \`ok:true\`. **ĐƯỢC và NÊN** kết luận từ code có sẵn nếu nó đã đúng —
+     việc của tester là chứng minh "nó CÓ hoạt động", KHÔNG đòi diff phải đụng vào. Note ghi đường code đã trace.
+   - Trace cho thấy tiêu chí **BỊ VI PHẠM** (bug THỰC SỰ tái hiện trên đường code) → \`ok:false\` + \`file:dòng\`.
+   - **Không suy ra được từ code** (phụ thuộc UI/runtime/dữ liệu thật) → \`manual:true\` + NEEDS_INFO. **TUYỆT ĐỐI
+     KHÔNG** đánh \`ok:false\` chỉ vì "không có thay đổi nên không xác nhận" — cái đó là NEEDS_INFO, KHÔNG phải lỗi.
+2. **DIFF chỉ là PHỤ** (không phải thước đo đúng/sai): dùng để (a) viết note cho đúng (đạt nhờ thay đổi này, hay
+   đã đúng sẵn), (b) phát hiện việc đáng lẽ phải làm mà thiếu. Nhưng **"diff không đụng tiêu chí" KHÔNG đồng nghĩa
+   "tiêu chí sai".** Nếu trace thấy hành vi đã đúng (fix từ trước / vốn đúng) → vẫn **PASS** (note "đã đúng sẵn,
+   thay đổi này lo việc khác"). Chỉ tính là thiếu sót khi **trace cho thấy hành vi SAI** mà diff lại không sửa.
+3. **Kết luận bug "chưa fix" phải TRACE được bug ĐÓ vẫn tái hiện** trên đường code hiện tại — KHÔNG suy "chưa fix"
+   chỉ vì "diff không thấy dòng sửa". Đường code hiện tại đã đúng ⇒ bug không còn ⇒ **PASS** (dù diff này không
+   phải nơi sửa). Đây là chống FAIL-oan: đừng FAIL chỉ vì không tìm thấy thay đổi.
+
 ## Phán quyết (verdict)
 - **PASS**: đã kiểm chứng được code ĐÁP ỨNG đủ tiêu chí nghiệm thu + trường hợp kiểm thử, không còn issue \`error\`.
 - **FAIL**: CHỈ khi chứng minh được **MỤC TIÊU không đạt** — chỉ ra vi phạm CỤ THỂ (kèm \`file:line\`) làm sai
@@ -164,8 +186,10 @@ HỢP LỆ, tuyệt đối đừng bắt lỗi chỉ vì "khác spec". Chỉ khi
 - \`how_tested\`: 1–3 câu **dễ hiểu** mô tả bạn đã test thế nào (đọc file/luồng nào, kiểm chứng ra sao) — viết cho cả người không rành code.
 - \`checklist\`: LIỆT KÊ **từng tiêu chí nghiệm thu + từng trường hợp kiểm thử** → mỗi mục
   \`{ "item": "<tên ngắn>", "ok": true/false, "manual": true/false, "note": "..." }\`:
-  - Đạt: \`ok:true\`.
-  - Lỗi: \`ok:false\` + \`note\` nêu **\`file:dòng\` + cách sửa**.
+  - Đạt (trace code thấy ĐÚNG, kể cả code có sẵn): \`ok:true\` + note đường code đã trace.
+  - Lỗi (trace thấy hành vi SAI/tái hiện bug): \`ok:false\` + \`note\` nêu **\`file:dòng\` + cách sửa**.
+  - **Không xác nhận được từ code** (phụ thuộc UI/runtime/dữ liệu): \`manual:true\` (→ NEEDS_INFO), **KHÔNG**
+    \`ok:false\`. "Diff không đụng tới" hay "không có thay đổi" KHÔNG phải lý do để \`ok:false\`.
 
 ### Tiêu chí thể hiện trên UI/DB — VẪN chấm qua CODE PATH (đừng đổ hết về NEEDS_INFO)
 Phần lớn tiêu chí (lưu dữ liệu, hiển thị, gửi mail, phân quyền…) tuy BIỂU HIỆN ở UI/DB nhưng ĐƯỢC QUYẾT ĐỊNH
@@ -219,7 +243,8 @@ export const ReviewAgent = {
     }
     // cwd = worktree (đọc đúng code đã thay đổi); context overview + docs lấy từ repo gốc.
     const repoForContext = task.repo_path ?? config.GIT_REPO_PATH;
-    const docsGuidance = ProjectDocs.guidance(repoForContext, RepoRegistry.docsPathForTask(task)) + RepoRegistry.contextGuidanceForTask(task);
+    const docsGuidance = ProjectDocs.frameworkRules(RepoRegistry.docsPathForTask(task))
+      + ProjectDocs.guidance(repoForContext, RepoRegistry.docsPathForTask(task)) + RepoRegistry.contextGuidanceForTask(task);
     return this.runReviewOnDiff(task, diff, acceptanceCriteria, testCases, attempt, worktreePath, repoForContext, docsGuidance);
   },
 
@@ -249,7 +274,8 @@ export const ReviewAgent = {
 
     // Diff rỗng (sai dải / chưa push / range không chứa thay đổi) → KHÔNG cần worktree, FAIL "diff rỗng" ngay.
     if (!diff.trim()) {
-      const docsGuidance = ProjectDocs.guidance(repoPath, RepoRegistry.docsPathForTask(task)) + RepoRegistry.contextGuidanceForTask(task);
+      const docsGuidance = ProjectDocs.frameworkRules(RepoRegistry.docsPathForTask(task))
+        + ProjectDocs.guidance(repoPath, RepoRegistry.docsPathForTask(task)) + RepoRegistry.contextGuidanceForTask(task);
       return this.runReviewOnDiff(task, diff, acceptanceCriteria, testCases, attempt, repoPath, repoPath, docsGuidance);
     }
 
@@ -265,7 +291,9 @@ export const ReviewAgent = {
       const docsAbs = RepoRegistry.docsPathForTask(task);
       const rel = relative(repoPath, docsAbs);
       const docsForReview = rel && !rel.startsWith('..') ? join(reviewCwd, rel) : docsAbs;
-      const docsGuidance = ProjectDocs.guidance(reviewCwd, docsForReview) + RepoRegistry.contextGuidanceForTask(task);
+      // Sổ luật đọc từ docs repo CHÍNH (docsAbs) — luôn có, kể cả khi ref cũ trong worktree CHƯA commit file này.
+      const docsGuidance = ProjectDocs.frameworkRules(docsAbs)
+        + ProjectDocs.guidance(reviewCwd, docsForReview) + RepoRegistry.contextGuidanceForTask(task);
 
       return await this.runReviewOnDiff(task, diff, acceptanceCriteria, testCases, attempt, reviewCwd, repoPath, docsGuidance);
     } finally {

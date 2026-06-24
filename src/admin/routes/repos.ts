@@ -6,6 +6,7 @@ import { RepoConfigRepository } from '../../state/RepoConfigRepository.js';
 import { TrelloClient } from '../../trello/TrelloClient.js';
 import { BoardProvisioner } from '../../trello/BoardProvisioner.js';
 import { generateDocs } from '../../scripts/gen-docs.js';
+import { generateFrameworkRules } from '../../scripts/gen-framework-rules.js';
 import { config } from '../../config.js';
 import { childLogger } from '../../utils/logger.js';
 import type { WorkerRegistry } from '../../supervisor/WorkerRegistry.js';
@@ -133,6 +134,17 @@ export function reposRouter(registry: WorkerRegistry): Router {
     log.info({ repoPath: cfg.repo_path, docsPath, mode: mode || 'auto' }, 'gen-docs nền: bắt đầu');
     const label = mode === 'continue' ? 'bổ sung phần thiếu' : mode === 'deepen' ? 'làm sâu file mỏng' : mode === 'full' ? 'sinh lại toàn bộ' : 'auto';
     res.json({ ok: true, message: `Đang sinh tài liệu (${label}) nền vào ${docsPath}. Xem log; xong thì review + commit.` });
+  }));
+
+  // Sinh SỔ LUẬT FRAMEWORK (00_FRAMEWORK_RULES.md) — tri thức để ReviewAgent test đúng. Chạy NỀN.
+  router.post('/repos/:id/gen-rules', wrap(async (req, res) => {
+    const cfg = RepoConfigRepository.getById(String(req.params.id));
+    if (!cfg) { res.status(404).json({ error: 'Cấu hình không tồn tại.' }); return; }
+    const docsPath = cfg.docs_path?.trim() || join(cfg.repo_path, 'docs');
+    void generateFrameworkRules(cfg.repo_path, docsPath).catch(err =>
+      log.error({ repoPath: cfg.repo_path, err: (err as Error).message }, 'gen-rules nền lỗi'));
+    log.info({ repoPath: cfg.repo_path, docsPath }, 'gen-rules nền: bắt đầu');
+    res.json({ ok: true, message: `Đang sinh Sổ luật framework nền vào ${docsPath}/00_FRAMEWORK_RULES.md. Xem log; xong thì review + commit.` });
   }));
 
   // Xoá cấu hình repo.

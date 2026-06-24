@@ -125,7 +125,11 @@ checkbox từng tiêu chí/test_case (✅ đạt / ❌ lỗi) + issues. Kéo car
    prune → chọn nhánh remote có commit MỚI NHẤT, loại main/master/production) → review auto-incremental nhánh
    đó. Muốn chỉ định rõ thì ghi trong **mô tả card** (`StageRouter.runBranchReview`):
    - `Branch: <ref>` (mình nó) → **AUTO-INCREMENTAL**: review **commit mới kể từ lần review trước** trên
-     nhánh đó (mốc lưu ở bảng `review_marks`, **tiến mốc khi PASS**). Lần đầu so với base branch.
+     nhánh đó (mốc lưu ở bảng `review_marks`, **tiến mốc khi PASS**). **Lần đầu (chưa có mốc)** → chỉ review
+     **commit của `REVIEW_AUTODETECT_DAYS` ngày mới nhất** (`GitClient.recentDaysBase`, mặc định 1 ngày) thay vì
+     cả dải `base...branch` (tránh diff khổng lồ/tốn token). Muốn rộng hơn → dùng `Base:`/`Range:`.
+   - ⚠️ **Dev NÊN ghi `Branch:` vào mô tả TRƯỚC khi kéo Test** (refine card đã chèn nhắc nhở đậm) — khỏi để
+     agent tự dò + review dải lớn. Card refine có sẵn mục `## 🛠️ Ghi chú Dev` kèm hướng dẫn.
    - `Branch: <ref>` + `Base: <ref>` → diff `base...branch` (3-dot). base nên là nhánh **CHƯA chứa**
      thay đổi → dù đã merge vào staging vẫn soi đúng.
    - `Range: a..b` / `Commits: a..b` / `Since: <sha>` (+ Branch) → diff đúng dải commit.
@@ -160,10 +164,16 @@ Test PASS → tự merge vào integration branch. Card con kế thừa `repo_key
   credentials `~/.claude`). DevAgent luôn spawn CLI (phiên agentic). `run/runForJson` nhận `model` override
   (API: id; CLI: `--model`). ClaudeCliClient nhận sự kiện `result` (stream-json) là **kết thúc ngay + kill**
   tiến trình (CLI hay treo sau khi xong → tránh chờ timeout).
-- **Chọn model theo khâu (token):** **Triage** = **Haiku** (`TRIAGE_MODEL`, rẻ nhất — chỉ đọc text card);
-  **BA/Tech** = **Sonnet** (`CLAUDE_MODEL`); **Planning thường** = Sonnet, **Epic** = **Opus** (`EPIC_MODEL`);
-  **gen-docs** = **Opus** (`DOCS_MODEL`); **Review** = `REVIEW_MODEL` (trống = Sonnet; `opus` khi cần). DevAgent
-  theo model của gói Claude CLI. Mọi cái đều đổi được trong `.env`.
+- **Chọn model theo khâu — 2 lớp (đổi ĐỘC LẬP từng khâu):**
+  1. **Provider** mỗi khâu: `MODEL_REFINE/PLANNING/DEV/TEST/TRIAGE/INDEXER` = `claude|gemini|openai`.
+  2. **Model-id** mỗi khâu: `TRIAGE_MODEL` (Haiku) · `REFINE_MODEL` (BA+Tech) · `PLANNING_MODEL` · `EPIC_MODEL`
+     (Opus) · `REVIEW_MODEL` · `DOCS_MODEL` (gen-docs/rules/index, Opus) · `DEV_MODEL`. **Trống = model mặc
+     định của provider** (`CLAUDE_MODEL`/`GEMINI_MODEL`/`OPENAI_MODEL`).
+  - **Guard khớp-provider** (`LlmClient.resolveModel`): model-id phải khớp provider của khâu; nếu lỡ đặt id
+    Claude khi provider=gemini/openai → hệ TỰ dùng model mặc định của provider (không gửi nhầm id gây lỗi
+    400/404). Nhờ vậy đổi BẤT KỲ khâu nào sang gemini/openai đều chạy, không kẹt cứng Claude.
+  - **DevAgent**: `MODEL_DEV=claude` → spawn **Claude CLI** (không dùng id, theo gói CLI); ≠claude →
+    `LlmClient` với `DEV_MODEL` (vòng agentic nội bộ + tool — yếu hơn Claude Code, hợp việc nhẹ). Mọi cái đổi trong `.env`.
 - `runForJson` **thử lại tối đa 2 lần** khi output thiếu JSON (CLI đôi khi chỉ "chào rồi dừng"), nhắc
   cứng hơn ở lần 2. BA/Tech có **fallback** để 1 lần lỗi không giết cả task.
 - Timeout: Refine (BA/Tech/DocCard) = `REFINE_TIMEOUT_MS`; gen-docs = `GEN_DOCS_TIMEOUT_MS`;

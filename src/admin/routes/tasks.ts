@@ -3,6 +3,7 @@ import type { Request, Response } from 'express';
 import { TaskRepository } from '../../state/TaskRepository.js';
 import type { TaskStatus } from '../../state/TaskRepository.js';
 import { GitOperationRepository } from '../../state/GitOperationRepository.js';
+import { UsageRepository } from '../../state/UsageRepository.js';
 import { getDb } from '../../state/db.js';
 import { TrelloClient } from '../../trello/TrelloClient.js';
 import { config } from '../../config.js';
@@ -101,7 +102,10 @@ export function tasksRouter(registry: WorkerRegistry): Router {
       log.warn({ taskId: task.id, err }, 'Không lấy được comment Trello cho chi tiết task');
     }
 
-    res.json({ task, gitOps, reviews, comments });
+    // Token/chi phí của task. Label các stage dùng key = card_id.slice(0,6) (xem *Agent.ts) → tra đúng prefix đó.
+    const usage = UsageRepository.forTask(task.card_id.slice(0, 6));
+
+    res.json({ task, gitOps, reviews, comments, usage });
   }));
 
   // Chạy lại task ở ĐÚNG stage hiện tại của card — worker thực thi (có ngữ cảnh repo).

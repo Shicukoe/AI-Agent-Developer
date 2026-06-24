@@ -20,7 +20,7 @@ function printLines(text: string, tag: string, isErr = false): void {
   }
 }
 
-export function makeStreamHandler(tag: string, label?: string, onActivity?: () => void, onDone?: () => void): StreamHandler {
+export function makeStreamHandler(tag: string, label?: string, onActivity?: () => void, onDone?: () => void, modelHint?: string): StreamHandler {
   let buffer = '';
   let finalText = '';
   let collected = '';
@@ -44,9 +44,15 @@ export function makeStreamHandler(tag: string, label?: string, onActivity?: () =
       if (typeof ev.result === 'string') finalText = ev.result;
       const u = ev.usage;
       if (u) {
-        const input = (u.input_tokens ?? 0) + (u.cache_creation_input_tokens ?? 0) + (u.cache_read_input_tokens ?? 0);
+        const cacheRead = u.cache_read_input_tokens ?? 0;
+        const cacheWrite = u.cache_creation_input_tokens ?? 0;
+        const input = (u.input_tokens ?? 0) + cacheWrite + cacheRead;
         const output = u.output_tokens ?? 0;
-        TokenTracker.record(label, input, output, ev.total_cost_usd ?? 0);
+        // CLI báo total_cost_usd thật (giá API quy đổi) → dùng thẳng, source='cli'. model lấy từ event nếu có.
+        TokenTracker.record(label, input, output, {
+          provider: 'claude', source: 'cli', model: ev.model || modelHint,
+          cacheRead, cacheWrite, costUsd: ev.total_cost_usd ?? 0,
+        });
       }
       onDone?.();   // CLI đã xong (event result) → cho phép caller kết thúc ngay, không chờ tiến trình tự thoát (hay treo)
     }

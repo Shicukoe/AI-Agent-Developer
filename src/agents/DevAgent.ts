@@ -100,7 +100,8 @@ export const DevAgent = {
     const card = await TrelloClient.getCard(task.card_id).catch(() => null);
     const epicId = card ? CardMemory.parseEpicId(card.desc) : null;
     if (epicId) memoryContext += await CardMemory.epicContext(epicId);
-    const projectContext = ProjectDocs.guidance(task.repo_path ?? config.GIT_REPO_PATH, RepoRegistry.docsPathForTask(task)) + RepoRegistry.contextGuidanceForTask(task);
+    const projectContext = ProjectDocs.frameworkRules(RepoRegistry.docsPathForTask(task))
+      + ProjectDocs.guidance(task.repo_path ?? config.GIT_REPO_PATH, RepoRegistry.docsPathForTask(task)) + RepoRegistry.contextGuidanceForTask(task);
     const prompt = buildPrompt(task, planContext, worktreePath, task.repo_path ?? config.GIT_REPO_PATH, projectContext, memoryContext);
     const timeoutMs = config.MAX_TASK_PROCESSING_MINUTES * 60 * 1000;
 
@@ -176,6 +177,7 @@ export const DevAgent = {
         summary = await LlmClient.run(prompt, config.MODEL_DEV, {
           allowedTools: ['Read', 'Write', 'Edit', 'Glob', 'Grep'],
           cwd: worktreePath,
+          model: config.DEV_MODEL,             // trống → model mặc định của provider (GEMINI_MODEL/OPENAI_MODEL)
           maxTurns: config.CLAUDE_MAX_TURNS_PER_TASK,
           timeoutMs: timeoutMs,
           label: `dev:${task.card_id.slice(0, 6)}`

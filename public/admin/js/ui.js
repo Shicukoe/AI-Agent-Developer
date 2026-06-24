@@ -54,6 +54,28 @@
     return Math.floor(hrs / 24) + ' ngày trước';
   }
 
+  // Số nguyên có dấu phân nhóm (vi-VN: 1.234.567).
+  function fmtNum(n) {
+    var v = Number(n) || 0;
+    return v.toLocaleString('vi-VN');
+  }
+
+  // Token gọn: 1234 → "1,2K" · 1234567 → "1,23M" (đỡ rối khi số lớn).
+  function fmtTokens(n) {
+    var v = Number(n) || 0;
+    if (v >= 1e6) return (v / 1e6).toFixed(2).replace('.', ',') + 'M';
+    if (v >= 1e3) return (v / 1e3).toFixed(1).replace('.', ',') + 'K';
+    return String(v);
+  }
+
+  // USD: <$0,01 hiện "<$0,01"; còn lại 2–4 chữ số thập phân.
+  function fmtUsd(n) {
+    var v = Number(n) || 0;
+    if (v === 0) return '$0';
+    if (v < 0.01) return '<$0,01';
+    return '$' + v.toFixed(v < 1 ? 4 : 2).replace('.', ',');
+  }
+
   function toast(msg, type) {
     var el = document.createElement('div');
     el.className = 'alert alert-' + (type || 'danger') + ' shadow position-fixed top-0 end-0 m-3';
@@ -69,6 +91,9 @@
     statusBadge: statusBadge,
     formatDate: formatDate,
     timeAgo: timeAgo,
+    fmtNum: fmtNum,
+    fmtTokens: fmtTokens,
+    fmtUsd: fmtUsd,
     toast: toast,
   };
 })(window);

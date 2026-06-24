@@ -52,8 +52,14 @@ const schema = z.object({
   MODEL_TRIAGE: z.enum(['claude', 'gemini', 'openai']).default('claude'),
   MODEL_INDEXER: z.enum(['claude', 'gemini', 'openai']).default('claude'),
   // Model cụ thể theo khâu (API: id; CLI: --model). Triage rẻ → Haiku; lập kế hoạch EPIC (lớn) → Opus.
+  // MỖI KHÂU đổi model độc lập. TRỐNG = dùng model mặc định của provider khâu đó (CLAUDE_MODEL/GEMINI_MODEL/
+  // OPENAI_MODEL). Model phải KHỚP provider của khâu (MODEL_* ): vd đặt MODEL_REFINE=gemini thì REFINE_MODEL
+  // nên là id gemini; nếu để id Claude khi provider=gemini, hệ sẽ TỰ dùng GEMINI_MODEL (không gửi nhầm id).
   TRIAGE_MODEL: z.string().default('claude-haiku-4-5-20251001'),
   EPIC_MODEL: z.string().default('claude-opus-4-8'),
+  REFINE_MODEL: z.string().default(''),    // BA + Technical Refiner (provider = MODEL_REFINE)
+  PLANNING_MODEL: z.string().default(''),  // Planning thường (provider = MODEL_PLANNING); Epic dùng EPIC_MODEL
+  DEV_MODEL: z.string().default(''),       // Dev khi provider ≠ claude (provider = MODEL_DEV; claude → Claude CLI)
 
   // Toggle lược bỏ quy ước lặp (CLAUDE.md/overview) ở Turn 1+ để tiết kiệm token.
   // Đặt false để TẮT (A/B test so sánh token).
@@ -112,6 +118,9 @@ const schema = z.object({
   REVIEW_MODEL: z.string().optional(),
   REVIEW_MAX_TURNS: num(25),       // reviewer đọc code trong ngữ cảnh để xác minh → cần nhiều lượt tool
   REVIEW_TIMEOUT_MS: num(420000),  // 7 phút
+  // Kéo-thả/Branch LẦN ĐẦU (chưa có mốc): chỉ review commit của N NGÀY mới nhất trên nhánh thay vì cả dải
+  // base...branch (tránh diff khổng lồ → chậm/tốn token). Dev muốn rộng hơn thì ghi `Base:`/`Range:` trong card.
+  REVIEW_AUTODETECT_DAYS: num(1),
 
   // Risk
   RISK_MAX_ACTIONS_PER_TASK: num(20),
@@ -141,6 +150,20 @@ const schema = z.object({
   ADMIN_API_TOKEN: z.string().optional(),
   // Chỉ bind localhost mặc định; đổi thành 0.0.0.0 nếu muốn truy cập từ máy khác (nhớ đặt token mạnh).
   ADMIN_BIND_HOST: z.string().default('127.0.0.1'),
+
+  // Gói thuê bao (subscription) — để admin tính "giá ĐÚNG" theo phí cố định thay vì giá API/token.
+  // Claude Max 5x = $100/tháng CỐ ĐỊNH (không tính theo token; giới hạn = cửa sổ trượt 5h + trần tuần).
+  // USAGE_PLAN_MONTHLY_USD > 0 → admin hiện "giá hiệu dụng/1M = phí ÷ token thực dùng" + so với API quy đổi.
+  // Đặt = 0 nếu bạn trả theo token (pay-as-you-go API) → admin chỉ hiện giá API quy đổi như cũ.
+  // ── Cửa sổ "session" rolling của gói (Claude Max = 5 giờ) ──
+  // Nguồn CHÍNH: ccusage (đọc transcript ~/.claude — cùng dữ liệu /usage dùng, read-only, không proxy) →
+  // lấy block 5h đang chạy: token + thời gian còn lại + burn rate. `/usage` slash không script được nên dùng nó.
+  CCUSAGE_ENABLED: bool(true),
+  // Lệnh chạy ccusage (đổi nếu cài global: 'ccusage'). Mặc định npx tự tải bản mới.
+  CCUSAGE_CMD: z.string().default('npx -y ccusage@latest'),
+  USAGE_SESSION_HOURS: num(5),
+  // Trần token quy %. 0 = TỰ HIỆU CHỈNH theo block 5h cao nhất từ trước (giống ccusage -t max). >0 = ép trần này.
+  USAGE_SESSION_LIMIT_TOKENS: num(0),
 
   // General
   NODE_ENV: z.enum(['development', 'production', 'test']).default('development'),

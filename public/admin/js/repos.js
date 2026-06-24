@@ -46,14 +46,14 @@
         '<td>' + inp('base_branch', it.base_branch, 'max-width:130px') + '</td>' +
         '<td>' + badge + '</td>' +
         '<td class="text-end" style="white-space:nowrap">' +
-          '<button class="btn btn-sm btn-theme" data-act="save" data-id="' + it.id + '">Lưu</button> ' +
-          '<button class="btn btn-sm btn-outline-theme" data-act="provision" data-id="' + it.id + '" title="Tự tạo list stage + label điều khiển còn thiếu trên board"><i class="bi bi-list-check"></i> Tạo list/label</button> ' +
-          '<button class="btn btn-sm btn-outline-theme" data-act="gendocs" data-id="' + it.id + '" title="Sinh tài liệu (auto/incremental) vào docs/"><i class="bi bi-file-earmark-text"></i> Gen docs</button> ' +
-          '<button class="btn btn-sm btn-outline-theme" data-act="gendocs-continue" data-id="' + it.id + '" title="GIỮ file đã có, chỉ viết thêm doc cho chức năng còn thiếu"><i class="bi bi-plus-circle"></i> Bổ sung docs</button> ' +
-          '<button class="btn btn-sm btn-outline-theme" data-act="gendocs-deepen" data-id="' + it.id + '" title="GIỮ mọi file; chỉ viết LẠI SÂU các doc đang mỏng (sơ sài)"><i class="bi bi-arrow-down-up"></i> Đào sâu thêm các docs</button> ' +
-          '<button class="btn btn-sm btn-outline-theme" data-act="gendocs-deepen" data-id="' + it.id + '" title="GIỮ mọi file; chỉ viết LẠI SÂU các doc đang mỏng (sơ sài)"><i class="bi bi-arrow-down-up"></i> Làm sâu docs</button> ' +
-          '<button class="btn btn-sm btn-outline-theme" data-act="toggle" data-id="' + it.id + '" data-en="' + (it.enabled ? 0 : 1) + '">' + (it.enabled ? 'Tắt' : 'Bật') + '</button> ' +
-          '<button class="btn btn-sm btn-outline-danger" data-act="del" data-id="' + it.id + '">Xoá</button>' +
+          '<button class="btn btn-sm btn-theme" data-act="save" data-id="' + it.id + '" title="Lưu cấu hình"><i class="bi bi-save"></i></button> ' +
+          '<button class="btn btn-sm btn-outline-theme" data-act="provision" data-id="' + it.id + '" title="Tạo list stage + label điều khiển còn thiếu trên board"><i class="bi bi-list-check"></i></button> ' +
+          '<button class="btn btn-sm btn-outline-theme" data-act="gendocs" data-id="' + it.id + '" title="Gen docs (auto/incremental)"><i class="bi bi-file-earmark-text"></i></button> ' +
+          '<button class="btn btn-sm btn-outline-theme" data-act="gendocs-continue" data-id="' + it.id + '" title="Bổ sung docs cho chức năng còn thiếu (giữ file cũ)"><i class="bi bi-file-earmark-plus"></i></button> ' +
+          '<button class="btn btn-sm btn-outline-theme" data-act="gendocs-deepen" data-id="' + it.id + '" title="Đào sâu các doc đang mỏng (giữ file đã đầy đủ)"><i class="bi bi-arrow-down-up"></i></button> ' +
+          '<button class="btn btn-sm btn-outline-theme" data-act="genrules" data-id="' + it.id + '" title="Sinh Sổ luật framework (00_FRAMEWORK_RULES.md) cho ReviewAgent"><i class="bi bi-rulers"></i></button> ' +
+          '<button class="btn btn-sm btn-outline-theme" data-act="toggle" data-id="' + it.id + '" data-en="' + (it.enabled ? 0 : 1) + '" title="' + (it.enabled ? 'Tắt dự án' : 'Bật dự án') + '"><i class="bi bi-' + (it.enabled ? 'pause-circle' : 'play-circle') + '"></i></button> ' +
+          '<button class="btn btn-sm btn-outline-danger" data-act="del" data-id="' + it.id + '" title="Xoá cấu hình"><i class="bi bi-trash"></i></button>' +
         '</td>' +
       '</tr>';
   }
@@ -101,6 +101,10 @@
         if (!confirm('ĐÀO SÂU các doc đang MỎNG (viết lại sâu hơn). GIỮ NGUYÊN các file đã đầy đủ. Chạy nền.')) return;
         var rd = await AdminApi.post('/repos/' + id + '/gen-docs', { mode: 'deepen' });
         U.toast((rd && rd.message) || 'Đang đào sâu tài liệu nền…', 'success');
+      } else if (act === 'genrules') {
+        if (!confirm('Sinh SỔ LUẬT FRAMEWORK (00_FRAMEWORK_RULES.md) — tri thức để ReviewAgent test đúng? Chạy nền.\\n(Mục "Ghi chú người duyệt" nếu có sẽ được giữ nguyên.)')) return;
+        var rr = await AdminApi.post('/repos/' + id + '/gen-rules', {});
+        U.toast((rr && rr.message) || 'Đang sinh Sổ luật framework nền…', 'success');
       } else if (act === 'toggle') {
         await AdminApi.put('/repos/' + id, { enabled: btn.getAttribute('data-en') === '1' });
         load();

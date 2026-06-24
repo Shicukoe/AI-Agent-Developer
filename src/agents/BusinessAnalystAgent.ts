@@ -79,7 +79,7 @@ export const BusinessAnalystAgent = {
       analyst = await LlmClient.runForJson<AnalystResponse>(
         buildBaPrompt(card, docsGuidance, memory, repoPath, docsExist),
         config.MODEL_REFINE,
-        { allowedTools: ['Read', 'Glob', 'Grep'], cwd: repoPath, model: config.CLAUDE_MODEL, maxTurns: 12, timeoutMs: config.REFINE_TIMEOUT_MS, label: `ba:${task.card_id.slice(0, 6)}` },
+        { allowedTools: ['Read', 'Glob', 'Grep'], cwd: repoPath, model: config.REFINE_MODEL, maxTurns: 12, timeoutMs: config.REFINE_TIMEOUT_MS, label: `ba:${task.card_id.slice(0, 6)}` },
       );
     } catch (err) {
       // CLI thi thoảng chỉ "chào" rồi dừng (không trả JSON). KHÔNG để crash cả task — fallback từ card.

@@ -8,6 +8,7 @@
     "dev": "tsx watch src/supervisor.ts",
     "start": "node dist/supervisor.js",
     "gen-docs": "tsx src/scripts/gen-docs.ts",
+    "gen-rules": "tsx src/scripts/gen-framework-rules.ts",
     "index": "tsx src/scripts/index-repo.ts",
     "build": "tsc && npm run copy-assets",
     "copy-assets": "node --input-type=module -e \"import { mkdirSync, copyFileSync } from 'fs'; mkdirSync('dist/state', { recursive: true }); mkdirSync('dist/rules', { recursive: true }); copyFileSync('src/state/schema.sql', 'dist/state/schema.sql'); copyFileSync('src/rules/rules.yaml', 'dist/rules/rules.yaml');\"",

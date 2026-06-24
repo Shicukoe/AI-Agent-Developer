@@ -9,6 +9,33 @@ const log = childLogger('llm-client');
 
 export type LlmProvider = 'claude' | 'gemini' | 'openai';
 
+/** Model mặc định của từng provider (dùng khi khâu không chỉ định, hoặc chỉ định model lệch provider). */
+function providerDefaultModel(provider: LlmProvider): string {
+  if (provider === 'gemini') return config.GEMINI_MODEL;
+  if (provider === 'openai') return config.OPENAI_MODEL;
+  return config.CLAUDE_MODEL;
+}
+
+/** Suy ra "họ" provider của một model-id theo tiền tố tên. 'unknown' = không nhận ra (cho phép dùng tự do). */
+function modelFamily(id: string): LlmProvider | 'unknown' {
+  if (/^claude/i.test(id)) return 'claude';
+  if (/^gemini/i.test(id)) return 'gemini';
+  if (/^(gpt|o1|o3|chatgpt|text-)/i.test(id)) return 'openai';
+  return 'unknown';
+}
+
+/**
+ * Chọn model-id ĐÚNG provider. Mỗi khâu có thể đặt model riêng (TRIAGE_MODEL/REFINE_MODEL/…); nhưng model-id
+ * là ĐẶC THÙ provider. Nếu id yêu cầu thuộc provider KHÁC (vd id Claude khi đang đi Gemini) → tự dùng model
+ * mặc định của provider thay vì gửi nhầm id (gây lỗi 400/404). Trống/không nhận ra họ → dùng nguyên (linh hoạt).
+ */
+function resolveModel(provider: LlmProvider, requested?: string): string {
+  if (!requested || !requested.trim()) return providerDefaultModel(provider);
+  const fam = modelFamily(requested);
+  if (fam === provider || fam === 'unknown') return requested;
+  return providerDefaultModel(provider);
+}
+
 // Helper to escape literal newlines/tabs inside JSON string values
 function sanitizeJson(raw: string): string {
   let out = '';
@@ -70,7 +97,7 @@ async function callClaude(
   });
 
   const body: any = {
-    model: model === 'claude-sonnet-4-6' ? 'claude-3-5-sonnet-20241022' : model,
+    model,
     messages: formattedMessages,
     max_tokens: config.CLAUDE_MAX_TOKENS || 4096,
     temperature: 0.1,
@@ -250,7 +277,7 @@ export const LlmClient = {
         return ClaudeCliClient.run(prompt, opts);
       }
       
-      const model = opts?.model ?? config.CLAUDE_MODEL;
+      const model = resolveModel('claude', opts?.model);
       const messages: any[] = [{ role: 'user', content: prompt }];
       let turn = 0;
 
@@ -290,7 +317,11 @@ export const LlmClient = {
         // Token usage → gom theo task (TokenTracker tự in per-call + tổng task khi AGENT_VERBOSE)
         const usage = responseData.usage;
         if (usage) {
-          TokenTracker.record(label, usage.input_tokens || 0, usage.output_tokens || 0);
+          const cacheRead = usage.cache_read_input_tokens || 0;
+          const cacheWrite = usage.cache_creation_input_tokens || 0;
+          TokenTracker.record(label, (usage.input_tokens || 0) + cacheRead + cacheWrite, usage.output_tokens || 0, {
+            provider: 'claude', source: 'api', model, cacheRead, cacheWrite,
+          });
         }
 
         const assistantContent = responseData.content;
@@ -352,7 +383,7 @@ export const LlmClient = {
       if (!apiKey) {
         throw new Error('GEMINI_API_KEY is not configured in .env');
       }
-      const model = opts?.model ?? config.GEMINI_MODEL;
+      const model = resolveModel('gemini', opts?.model);
       const messages: any[] = [{ role: 'user', content: prompt }];
       let turn = 0;
 
@@ -396,7 +427,10 @@ export const LlmClient = {
         // Token usage → gom theo task
         const usage = responseData.usageMetadata;
         if (usage) {
-          TokenTracker.record(label, usage.promptTokenCount || 0, usage.candidatesTokenCount || 0);
+          const cacheRead = usage.cachedContentTokenCount || 0;
+          TokenTracker.record(label, usage.promptTokenCount || 0, usage.candidatesTokenCount || 0, {
+            provider: 'gemini', source: 'gemini', model, cacheRead,
+          });
         }
         const candidate = responseData.candidates?.[0];
         const part = candidate?.content?.parts?.[0];
@@ -464,7 +498,7 @@ export const LlmClient = {
       if (!apiKey) {
         throw new Error('OPENAI_API_KEY is not configured in .env');
       }
-      const model = opts?.model ?? config.OPENAI_MODEL;
+      const model = resolveModel('openai', opts?.model);
       const baseUrl = config.OPENAI_BASE_URL;
       const messages: any[] = [{ role: 'user', content: prompt }];
       let turn = 0;
@@ -499,7 +533,10 @@ export const LlmClient = {
         // Token usage → gom theo task
         const usage = responseData.usage;
         if (usage) {
-          TokenTracker.record(label, usage.prompt_tokens || 0, usage.completion_tokens || 0);
+          const cacheRead = usage.prompt_tokens_details?.cached_tokens || 0;
+          TokenTracker.record(label, usage.prompt_tokens || 0, usage.completion_tokens || 0, {
+            provider: 'openai', source: 'openai', model, cacheRead,
+          });
         }
         const choice = responseData.choices?.[0];
         const msg = choice?.message;
