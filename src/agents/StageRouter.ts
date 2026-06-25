@@ -265,6 +265,14 @@ export const StageRouter = {
 
       TaskRepository.setStatus(task.id, 'awaiting_plan_approval');
       log.info({ taskId: task.id }, 'Plan posted, awaiting plan-approve label');
+
+      // AUTO-PILOT: không có người gắn nhãn `plan approve` → TỰ chốt kế hoạch rồi đẩy sang Dev.
+      if (RepoRegistry.autoPilotForTask(task)) {
+        TaskRepository.setStatus(task.id, 'plan_approved');
+        await TrelloClient.addComment(task.card_id,
+          '🚀 **[AUTO-PILOT]** Đã tự chốt kế hoạch (không cần nhãn `plan approve`) → chuyển sang **Dev**.').catch(() => {});
+        await autoPilotAdvance(task, config.TRELLO_DEV_LIST_NAMES, 'Dev').catch(() => {});
+      }
     } catch (err) {
       await OrchestratorAgent.handleError(task, err);
     }
@@ -639,8 +647,10 @@ export const StageRouter = {
   },
 
   /**
-   * AUTO-PILOT sau Refine: định tuyến full-auto. Epic → bỏ qua (cần lập kế hoạch + duyệt, xử lý tay).
-   * Còn lại (trivial/design/doc) → BỎ Planning, đẩy thẳng **Dev** (đảm bảo plan_approved để runDev chạy).
+   * AUTO-PILOT sau Refine: định tuyến full-auto theo quyết định của BA/Tech:
+   *  - `design_solve` (cần kế hoạch) → **Planning** (runPlanning sẽ TỰ chốt plan rồi sang Dev).
+   *  - `trivial_solve` / `doc_card` (giải quyết ngay) → thẳng **Dev** (đặt plan_approved để runDev chạy).
+   *  - `epic_solve` → tạm bỏ qua (epic cần lập kế hoạch tổng + sinh card con, xử lý tay).
    */
   async autoAdvanceAfterRefine(task: Task): Promise<void> {
     const fresh = TaskRepository.findById(task.id);
@@ -652,7 +662,12 @@ export const StageRouter = {
         'ℹ️ **[AUTO-PILOT]** Task là **EPIC** — auto-pilot tạm bỏ qua (epic cần lập kế hoạch + duyệt). Xử lý tay.').catch(() => {});
       return;
     }
-    // design/trivial/doc → Dev (bỏ Planning). Đảm bảo đã "duyệt" để runDev không chặn.
+    if (decision === 'design_solve') {
+      // Cần lập kế hoạch đầy đủ → Planning (Plan sẽ được TỰ chốt ở runPlanning khi auto-pilot).
+      await autoPilotAdvance(fresh, config.TRELLO_PLANNING_LIST_NAMES, 'Planning').catch(() => {});
+      return;
+    }
+    // trivial_solve / doc_card → giải quyết ngay, thẳng Dev (đảm bảo đã "duyệt" để runDev không chặn).
     if (fresh.status !== 'plan_approved') TaskRepository.setStatus(fresh.id, 'plan_approved');
     await autoPilotAdvance(fresh, config.TRELLO_DEV_LIST_NAMES, 'Dev').catch(() => {});
   },
