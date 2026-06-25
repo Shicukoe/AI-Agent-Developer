@@ -155,7 +155,11 @@ const schema = z.object({
   // Claude Max 5x = $100/tháng CỐ ĐỊNH (không tính theo token; giới hạn = cửa sổ trượt 5h + trần tuần).
   // USAGE_PLAN_MONTHLY_USD > 0 → admin hiện "giá hiệu dụng/1M = phí ÷ token thực dùng" + so với API quy đổi.
   // Đặt = 0 nếu bạn trả theo token (pay-as-you-go API) → admin chỉ hiện giá API quy đổi như cũ.
-  // ── Cửa sổ "session" rolling của gói (Claude Max = 5 giờ) ──
+  // Nguồn % giới hạn THẬT: gọi endpoint /api/oauth/usage của Anthropic bằng OAuth token có sẵn trong
+  // ~/.claude/.credentials.json (đúng số `/usage` hiển thị: session 5h + tuần, tự reset, không cần trần).
+  // Token chỉ đọc local + gửi tới api.anthropic.com, KHÔNG log. true = ưu tiên nguồn này; lỗi/hết hạn → fallback ccusage.
+  CLAUDE_USAGE_OFFICIAL: bool(true),
+  // ── Cửa sổ "session" rolling của gói (Claude Max = 5 giờ) — fallback khi không lấy được số thật ──
   // Nguồn CHÍNH: ccusage (đọc transcript ~/.claude — cùng dữ liệu /usage dùng, read-only, không proxy) →
   // lấy block 5h đang chạy: token + thời gian còn lại + burn rate. `/usage` slash không script được nên dùng nó.
   CCUSAGE_ENABLED: bool(true),

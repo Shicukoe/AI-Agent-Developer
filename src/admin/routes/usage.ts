@@ -2,6 +2,7 @@ import { Router } from 'express';
 import type { Request, Response } from 'express';
 import { UsageRepository } from '../../state/UsageRepository.js';
 import { getCcusageSnapshot } from '../../utils/ccusage.js';
+import { getClaudeUsage } from '../../utils/claudeUsage.js';
 import { config } from '../../config.js';
 import { childLogger } from '../../utils/logger.js';
 
@@ -33,12 +34,33 @@ export function usageRouter(): Router {
     });
     const stagesTotal = byStage.reduce((a, s) => a + s.tokens, 0);
 
-    // Cửa sổ session 5h. NGUỒN CHÍNH: ccusage (block 5h thật từ transcript ~/.claude). Lỗi → tự đo từ DB.
+    // Cửa sổ session 5h. ƯU TIÊN: số THẬT từ Anthropic (/api/oauth/usage) = đúng `/usage`, tự reset, không cần trần.
+    // Lỗi/hết hạn token → ccusage (block 5h ước lượng) → cuối cùng tự đo từ DB.
     const hours = config.USAGE_SESSION_HOURS;
     const cfgLimit = config.USAGE_SESSION_LIMIT_TOKENS;
-    const cc = await getCcusageSnapshot();
     let session;
 
+    const official = await getClaudeUsage();
+    if (official) {
+      session = {
+        source: 'official',
+        hours,
+        pct: official.session.percent,                  // % THẬT — gauge dùng thẳng, không cần token/trần
+        resetsAt: official.session.resetsAt,
+        remainingMinutes: official.session.remainingMinutes,
+        severity: official.session.severity,
+        weekly: {
+          pct: official.weekly.percent,
+          resetsAt: official.weekly.resetsAt,
+          remainingMinutes: official.weekly.remainingMinutes,
+          severity: official.weekly.severity,
+        },
+      };
+      res.json({ byStage, stagesTotal, session });
+      return;
+    }
+
+    const cc = await getCcusageSnapshot();
     if (cc?.active) {
       const a = cc.active;
       const tc = a.tokenCounts ?? {};

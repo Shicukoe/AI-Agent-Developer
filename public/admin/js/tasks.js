@@ -79,8 +79,38 @@
     }
   }
 
+  function fmtReset(min) {
+    if (min == null) return '';
+    var h = Math.floor(min / 60), mm = min % 60;
+    return 'reset sau ' + (h > 0 ? h + 'h' : '') + mm + 'p';
+  }
+
+  // Panel khi có SỐ THẬT từ Anthropic (/api/oauth/usage) — đúng /usage, không cần token/trần.
+  function officialPanel(s) {
+    var pct = Math.round(s.pct || 0);
+    var sev = s.severity;
+    var col = (sev === 'critical' || pct >= 90) ? '#ef4444' : (sev === 'warning' || pct >= 70) ? '#f59e0b' : 'var(--ap-accent, #2563eb)';
+    var wk = s.weekly || {};
+    var wpct = Math.round(wk.pct || 0);
+    var wcol = wpct >= 90 ? '#ef4444' : wpct >= 70 ? '#f59e0b' : '#06b6d4';
+    return '<div class="ap-tile h-100 d-flex flex-column align-items-center justify-content-center text-center p-3">' +
+      '<div class="text-secondary small fw-semibold mb-2"><i class="bi bi-hourglass-split me-1"></i>Session 5h · % giới hạn THẬT</div>' +
+      '<div class="ap-gauge" style="background:conic-gradient(' + col + ' ' + (pct * 3.6) + 'deg,#e9edf5 0)">' +
+        '<div class="ap-gauge-hole"><div class="ap-gauge-num">' + pct + '<span class="ap-gauge-pct">%</span></div></div>' +
+      '</div>' +
+      '<div class="small mt-2 fw-semibold"><i class="bi bi-clock-history me-1 text-theme"></i>' + U.escapeHtml(fmtReset(s.remainingMinutes)) + '</div>' +
+      '<div class="w-100 px-2 mt-3">' +
+        '<div class="d-flex justify-content-between fs-12 mb-1"><span class="text-secondary">Tuần (7 ngày)</span><span class="fw-semibold">' + wpct + '%</span></div>' +
+        '<div class="ap-bar"><div class="ap-bar-fill" style="width:' + Math.max(2, wpct) + '%;background:linear-gradient(90deg,#06b6d4,' + wcol + ')"></div></div>' +
+        (wk.remainingMinutes != null ? '<div class="text-secondary fs-12 mt-1 text-start">' + U.escapeHtml(fmtReset(wk.remainingMinutes)) + '</div>' : '') +
+      '</div>' +
+      '<div class="mt-3"><span class="badge bg-light-green text-success fs-12"><i class="bi bi-patch-check me-1"></i>Anthropic /usage · số thật</span></div>' +
+      '</div>';
+  }
+
   // Vòng tròn % cửa sổ 5h (conic-gradient). Nguồn ccusage = block 5h thật; fallback = tự đo từ DB.
   function sessionPanel(s) {
+    if (s.source === 'official') return officialPanel(s);
     var has = s.pct != null;
     var pct = has ? Math.round(s.pct) : 0;
     var ring = has ? pct : 100;
