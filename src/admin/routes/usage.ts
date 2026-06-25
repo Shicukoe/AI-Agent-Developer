@@ -42,6 +42,11 @@ export function usageRouter(): Router {
 
     const official = await getClaudeUsage();
     if (official) {
+      // Endpoint OAuth chỉ trả %, không có token count → lấy token THỰC của block 5h từ ccusage (best-effort).
+      const ccTok = await getCcusageSnapshot();
+      const blk = ccTok?.active;
+      const tIn = blk?.tokenCounts?.inputTokens ?? null;
+      const tOut = blk?.tokenCounts?.outputTokens ?? null;
       session = {
         source: 'official',
         hours,
@@ -49,6 +54,11 @@ export function usageRouter(): Router {
         resetsAt: official.session.resetsAt,
         remainingMinutes: official.session.remainingMinutes,
         severity: official.session.severity,
+        // Token thực đã dùng trong block 5h (in+out, bỏ cache) — số phụ, từ ccusage. null nếu không có ccusage.
+        tokens: tIn != null && tOut != null ? tIn + tOut : null,
+        input: tIn,
+        output: tOut,
+        cacheRead: blk?.tokenCounts?.cacheReadInputTokens ?? null,
         weekly: {
           pct: official.weekly.percent,
           resetsAt: official.weekly.resetsAt,

@@ -99,6 +99,10 @@
         '<div class="ap-gauge-hole"><div class="ap-gauge-num">' + pct + '<span class="ap-gauge-pct">%</span></div></div>' +
       '</div>' +
       '<div class="small mt-2 fw-semibold"><i class="bi bi-clock-history me-1 text-theme"></i>' + U.escapeHtml(fmtReset(s.remainingMinutes)) + '</div>' +
+      (s.tokens != null
+        ? '<div class="text-secondary fs-12 mt-1">đã dùng <span class="fw-semibold text-dark">' + U.fmtTokens(s.tokens) + '</span> token thật (in ' + U.fmtTokens(s.input) + ' · out ' + U.fmtTokens(s.output) + ')' +
+          (s.cacheRead ? '<br>cache đọc lại ' + U.fmtTokens(s.cacheRead) + ' (không tính giới hạn)' : '') + '</div>'
+        : '') +
       '<div class="w-100 px-2 mt-3">' +
         '<div class="d-flex justify-content-between fs-12 mb-1"><span class="text-secondary">Tuần (7 ngày)</span><span class="fw-semibold">' + wpct + '%</span></div>' +
         '<div class="ap-bar"><div class="ap-bar-fill" style="width:' + Math.max(2, wpct) + '%;background:linear-gradient(90deg,#06b6d4,' + wcol + ')"></div></div>' +
