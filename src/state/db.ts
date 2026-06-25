@@ -50,6 +50,7 @@ function migrate(db: Database.Database): void {
   addColumns('repo_configs', [
     { name: 'docs_path', ddl: 'ALTER TABLE repo_configs ADD COLUMN docs_path TEXT' },
     { name: 'context_repo_paths', ddl: 'ALTER TABLE repo_configs ADD COLUMN context_repo_paths TEXT' },
+    { name: 'auto_pilot', ddl: 'ALTER TABLE repo_configs ADD COLUMN auto_pilot INTEGER NOT NULL DEFAULT 0' },
   ]);
 }
 

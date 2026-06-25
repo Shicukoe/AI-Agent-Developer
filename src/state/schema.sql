@@ -159,5 +159,6 @@ CREATE TABLE IF NOT EXISTS repo_configs (
   created_at   INTEGER NOT NULL,
   updated_at   INTEGER NOT NULL,
   docs_path    TEXT,            -- thư mục tài liệu dự án (mặc định <repo>/docs)
-  context_repo_paths TEXT       -- JSON array path repo NGỮ CẢNH (chỉ đọc) cho agent tra cứu
+  context_repo_paths TEXT,      -- JSON array path repo NGỮ CẢNH (chỉ đọc) cho agent tra cứu
+  auto_pilot   INTEGER NOT NULL DEFAULT 0  -- 1 = full-auto: agent tự đẩy card qua các stage (Refine→Dev→Test→Done)
 );

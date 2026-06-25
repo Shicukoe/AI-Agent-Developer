@@ -76,6 +76,7 @@ export function reposRouter(registry: WorkerRegistry): Router {
       enabled: enabled === false ? false : true,
       docs_path: docs_path ? String(docs_path) : undefined,
       context_repo_paths: normalizeContextPaths(req.body?.context_repo_paths),
+      auto_pilot: req.body?.auto_pilot === true,
     });
     log.info({ boardId: row.board_id, repoPath: row.repo_path }, 'Repo config created');
     registry.reconcile();   // spawn worker cho dự án mới
@@ -115,6 +116,7 @@ export function reposRouter(registry: WorkerRegistry): Router {
     if (enabled !== undefined) patch.enabled = enabled ? 1 : 0;
     if (docs_path !== undefined) patch.docs_path = String(docs_path).trim() || null;
     if (req.body?.context_repo_paths !== undefined) patch.context_repo_paths = normalizeContextPaths(req.body.context_repo_paths) ?? null;
+    if (req.body?.auto_pilot !== undefined) patch.auto_pilot = req.body.auto_pilot ? 1 : 0;
     RepoConfigRepository.update(existing.id, patch);
     registry.reconcile();   // restart worker nếu repo/branch/docs/enabled đổi
     res.json({ ok: true, item: RepoConfigRepository.getById(existing.id) });

@@ -10,6 +10,8 @@ export interface ResolvedRepo {
   baseBranch: string;
   docsPath: string;
   name: string;
+  /** Full-auto: agent tự đẩy card qua các stage (chỉ board bật mới chạy). */
+  autoPilot: boolean;
 }
 export type RepoResolution = ResolvedRepo | { error: string };
 
@@ -46,6 +48,7 @@ function defaultRepo(): ResolvedRepo {
     baseBranch: config.GIT_DEFAULT_BASE_BRANCH,
     docsPath: defaultDocsPath(config.GIT_REPO_PATH),
     name: 'default',
+    autoPilot: false,   // repo mặc định luôn thủ công (an toàn)
   };
 }
 
@@ -91,10 +94,17 @@ export const RepoRegistry = {
       return {
         repoKey: cfg.id, repoPath: cfg.repo_path, baseBranch: cfg.base_branch,
         docsPath: cfg.docs_path?.trim() || defaultDocsPath(cfg.repo_path), name: cfg.name,
+        autoPilot: !!cfg.auto_pilot,
       };
     }
     if (RepoConfigRepository.count() === 0) return defaultRepo();
     return { error: `Board \`${boardId}\` chưa được cấu hình repo. Vào trang **Admin → Repos** để map board này tới một repo.` };
+  },
+
+  /** Card của task này có chạy full-auto không (theo repo_config của board). Default/không rõ → false. */
+  autoPilotForTask(task: Task): boolean {
+    const cfg = task.repo_key ? RepoConfigRepository.getById(task.repo_key) : undefined;
+    return !!cfg?.auto_pilot;
   },
 
   /** Đường dẫn docs cho 1 task (tra theo repo_key, fallback <repo_path>/docs). */

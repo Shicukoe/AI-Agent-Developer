@@ -52,6 +52,7 @@
           '<button class="btn btn-sm btn-outline-theme" data-act="gendocs-continue" data-id="' + it.id + '" title="Bổ sung docs cho chức năng còn thiếu (giữ file cũ)"><i class="bi bi-file-earmark-plus"></i></button> ' +
           '<button class="btn btn-sm btn-outline-theme" data-act="gendocs-deepen" data-id="' + it.id + '" title="Đào sâu các doc đang mỏng (giữ file đã đầy đủ)"><i class="bi bi-arrow-down-up"></i></button> ' +
           '<button class="btn btn-sm btn-outline-theme" data-act="genrules" data-id="' + it.id + '" title="Sinh Sổ luật framework (00_FRAMEWORK_RULES.md) cho ReviewAgent"><i class="bi bi-rulers"></i></button> ' +
+          '<button class="btn btn-sm ' + (it.auto_pilot ? 'btn-success' : 'btn-outline-secondary') + '" data-act="autopilot" data-id="' + it.id + '" data-ap="' + (it.auto_pilot ? 0 : 1) + '" title="' + (it.auto_pilot ? 'Full-auto ĐANG BẬT (agent tự chạy Refine→Dev→Test→Done). Bấm để TẮT.' : 'Bật FULL-AUTO: agent tự đẩy card qua các stage') + '"><i class="bi bi-robot"></i></button> ' +
           '<button class="btn btn-sm btn-outline-theme" data-act="toggle" data-id="' + it.id + '" data-en="' + (it.enabled ? 0 : 1) + '" title="' + (it.enabled ? 'Tắt dự án' : 'Bật dự án') + '"><i class="bi bi-' + (it.enabled ? 'pause-circle' : 'play-circle') + '"></i></button> ' +
           '<button class="btn btn-sm btn-outline-danger" data-act="del" data-id="' + it.id + '" title="Xoá cấu hình"><i class="bi bi-trash"></i></button>' +
         '</td>' +
@@ -105,6 +106,12 @@
         if (!confirm('Sinh SỔ LUẬT FRAMEWORK (00_FRAMEWORK_RULES.md) — tri thức để ReviewAgent test đúng? Chạy nền.\\n(Mục "Ghi chú người duyệt" nếu có sẽ được giữ nguyên.)')) return;
         var rr = await AdminApi.post('/repos/' + id + '/gen-rules', {});
         U.toast((rr && rr.message) || 'Đang sinh Sổ luật framework nền…', 'success');
+      } else if (act === 'autopilot') {
+        var on = btn.getAttribute('data-ap') === '1';
+        if (on && !confirm('BẬT FULL-AUTO cho board này?\\n\\nAgent sẽ TỰ đẩy card qua Refine → Dev → Test (lặp tới khi PASS hoặc quá số lần sửa) → Done, KHÔNG cần kéo tay. Không auto-merge (bạn merge tay).')) return;
+        await AdminApi.put('/repos/' + id, { auto_pilot: on });
+        U.toast(on ? 'Đã BẬT full-auto cho board.' : 'Đã tắt full-auto.', 'success');
+        load();
       } else if (act === 'toggle') {
         await AdminApi.put('/repos/' + id, { enabled: btn.getAttribute('data-en') === '1' });
         load();

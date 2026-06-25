@@ -153,6 +153,8 @@ export const StageRouter = {
       } else {
         await this.finalizeBusinessRefine(task, card, analyst);
       }
+      // AUTO-PILOT: tự đẩy sang stage kế (chỉ board bật). needsInfo đã return ở trên nên tới đây refine đã quyết.
+      if (RepoRegistry.autoPilotForTask(task)) await this.autoAdvanceAfterRefine(task);
     } catch (err) {
       await OrchestratorAgent.handleError(task, err);
     }
@@ -171,6 +173,7 @@ export const StageRouter = {
     await TrelloClient.addComment(task.card_id,
       '⚡ **[AI AGENT]** Task tí hon — **bỏ qua Refine & Planning**. Kéo card sang list **Dev** để code ngay.');
     log.info({ taskId: task.id, source }, 'Fast-path: trivial → Dev');
+    if (RepoRegistry.autoPilotForTask(task)) await autoPilotAdvance(task, config.TRELLO_DEV_LIST_NAMES, 'Dev').catch(() => {});
   },
 
   /**
@@ -412,6 +415,13 @@ export const StageRouter = {
 
       // Không có thay đổi file → KHÔNG báo "Code xong"/không cho sang Test (sẽ FAIL "No changes").
       if (!result.committed) {
+        // Auto-pilot: re-dev sẽ lại "no changes" → kẹt. Halt thẳng cho người xem (đừng loop).
+        if (RepoRegistry.autoPilotForTask(task)) {
+          TaskRepository.setStatus(task.id, 'halted', { error_message: 'Auto-pilot: DevAgent không tạo thay đổi (kẹt)' });
+          await TrelloClient.addComment(task.card_id,
+            '🛑 **[AUTO-PILOT]** DevAgent **không tạo thay đổi file nào** → kẹt, **dừng** để người xem (nêu rõ đường dẫn file cần tạo nếu là task tài liệu).');
+          return;
+        }
         TaskRepository.setStatus(task.id, 'review_failed', { error_message: 'DevAgent không tạo thay đổi file' });
         await TrelloClient.addComment(task.card_id,
           '⚠️ **[AI AGENT]** DevAgent kết thúc nhưng **không tạo thay đổi file nào** — chưa thể sang Test.\n' +
@@ -422,6 +432,7 @@ export const StageRouter = {
       TaskRepository.setStatus(task.id, 'dev_done');
       await TrelloClient.addComment(task.card_id,
         `✅ **[AI AGENT]** Code xong trên branch \`${branchName}\`. Kéo card sang list **Test** để review.`);
+      if (RepoRegistry.autoPilotForTask(task)) await autoPilotAdvance(task, config.TRELLO_TEST_LIST_NAMES, 'Test').catch(() => {});
     } catch (err) {
       await OrchestratorAgent.handleError(task, err);
     }
@@ -454,6 +465,12 @@ export const StageRouter = {
         await TrelloClient.addComment(task.card_id,
           '❓ **[AI AGENT]** Chưa kết luận được đúng/sai — cần làm rõ (xem **checklist** ở comment trên: config/UI/dữ liệu cần kiểm tra). ' +
           'Bổ sung thông tin (hoặc tự kiểm theo checklist) rồi kéo lại **Test** (hoặc reply `RETRY`).');
+        // Auto-pilot: không có người làm rõ ngay → halt cho người xem (đừng loop vô nghĩa).
+        if (RepoRegistry.autoPilotForTask(task)) {
+          TaskRepository.setStatus(task.id, 'halted', { error_message: 'Auto-pilot: review NEEDS_INFO (cần người làm rõ)' });
+          await TrelloClient.addComment(task.card_id,
+            '🛑 **[AUTO-PILOT]** Review chưa kết luận được (phụ thuộc config/UI/dữ liệu) → **dừng** để người xem theo checklist trên.').catch(() => {});
+        }
         return;
       }
 
@@ -483,6 +500,9 @@ export const StageRouter = {
         if (childMeta) {
           await EpicManager.markChildDone(fresh);
           await EpicManager.announceNext(fresh);
+        } else if (RepoRegistry.autoPilotForTask(task)) {
+          await TrelloClient.addComment(task.card_id,
+            '🎉 **[AUTO-PILOT]** Hoàn tất! Test **PASS** — branch sẵn sàng, bạn review + merge tay khi muốn.').catch(() => {});
         }
       } else {
         TaskRepository.setStatus(task.id, 'review_failed');
@@ -494,6 +514,8 @@ export const StageRouter = {
           `${result.summary}\n\n**Vấn đề:**\n${issueLines || '—'}`).catch(() => {});
         await TrelloClient.addComment(task.card_id,
           '❌ **[AI AGENT]** Review FAIL. Kéo card lại list **Dev** để sửa — **không cần** qua Refine (kế hoạch/spec vẫn giữ, chi tiết lỗi đã ghi vào memory). Đang ở Dev thì chỉ cần reply `RETRY`.');
+        // Auto-pilot: tự đẩy lại Dev (vòng dev↔test) cho tới khi PASS hoặc quá MAX_DEV_RETRY_ATTEMPTS → halt.
+        if (RepoRegistry.autoPilotForTask(task)) await this.autoRetryOrHalt(task);
       }
     } catch (err) {
       await OrchestratorAgent.handleError(task, err);
@@ -615,6 +637,45 @@ export const StageRouter = {
       await OrchestratorAgent.handleError(task, err);
     }
   },
+
+  /**
+   * AUTO-PILOT sau Refine: định tuyến full-auto. Epic → bỏ qua (cần lập kế hoạch + duyệt, xử lý tay).
+   * Còn lại (trivial/design/doc) → BỎ Planning, đẩy thẳng **Dev** (đảm bảo plan_approved để runDev chạy).
+   */
+  async autoAdvanceAfterRefine(task: Task): Promise<void> {
+    const fresh = TaskRepository.findById(task.id);
+    if (!fresh) return;
+    let decision = '';
+    try { decision = (JSON.parse(fresh.metadata ?? '{}') as { refine_decision?: string }).refine_decision ?? ''; } catch { /* metadata trống */ }
+    if (decision === 'epic_solve') {
+      await TrelloClient.addComment(fresh.card_id,
+        'ℹ️ **[AUTO-PILOT]** Task là **EPIC** — auto-pilot tạm bỏ qua (epic cần lập kế hoạch + duyệt). Xử lý tay.').catch(() => {});
+      return;
+    }
+    // design/trivial/doc → Dev (bỏ Planning). Đảm bảo đã "duyệt" để runDev không chặn.
+    if (fresh.status !== 'plan_approved') TaskRepository.setStatus(fresh.id, 'plan_approved');
+    await autoPilotAdvance(fresh, config.TRELLO_DEV_LIST_NAMES, 'Dev').catch(() => {});
+  },
+
+  /**
+   * AUTO-PILOT khi Test FAIL: nếu chưa quá `MAX_DEV_RETRY_ATTEMPTS` → tăng retry + đẩy lại **Dev** (vòng
+   * dev↔test tự chạy). Quá ngưỡng → **halt** + comment (DỪNG vòng lặp, tránh đốt token vô hạn).
+   */
+  async autoRetryOrHalt(task: Task): Promise<void> {
+    const fresh = TaskRepository.findById(task.id);
+    if (!fresh) return;
+    const used = fresh.retry_count ?? 0;
+    const max = config.MAX_DEV_RETRY_ATTEMPTS;
+    if (used >= max) {
+      TaskRepository.setStatus(fresh.id, 'halted', { error_message: `Auto-pilot: FAIL quá ${max} lần` });
+      await TrelloClient.addComment(fresh.card_id,
+        `🛑 **[AUTO-PILOT]** Đã tự sửa **${used}/${max}** lần vẫn FAIL → **dừng** để người xem (tránh đốt token vô hạn). Lỗi ở các comment trên.`).catch(() => {});
+      log.warn({ taskId: fresh.id, used, max }, 'Auto-pilot: max retry reached → halted');
+      return;
+    }
+    TaskRepository.update(fresh.id, { retry_count: used + 1 });
+    await autoPilotAdvance(fresh, config.TRELLO_DEV_LIST_NAMES, `Dev (sửa lần ${used + 1}/${max})`).catch(() => {});
+  },
 };
 
 /**
@@ -628,6 +689,33 @@ async function autoDetectReviewBranch(repoPath: string): Promise<string | null> 
   const FINAL = new Set(['main', 'master', 'production', 'prod', 'release']);
   const candidate = branches.find(b => !FINAL.has(b.branch.toLowerCase())) ?? branches[0];
   return candidate.branch || null;
+}
+
+/** Tìm list id của 1 stage trên board theo tên cấu hình (khớp không phân biệt hoa thường). null nếu không có. */
+async function findStageListId(boardId: string, listNames: string[]): Promise<string | null> {
+  try {
+    const lists = await TrelloClient.getLists(boardId);
+    const want = new Set(listNames.map(n => n.trim().toLowerCase()).filter(Boolean));
+    return lists.find(l => want.has(l.name.trim().toLowerCase()))?.id ?? null;
+  } catch { return null; }
+}
+
+/**
+ * AUTO-PILOT: chuyển card sang list của stage kế → poller tự dispatch stage đó (CÙNG cơ chế kéo tay,
+ * không double-run). CHỈ gọi khi repo bật `auto_pilot`. Trả true nếu đã chuyển.
+ */
+async function autoPilotAdvance(task: Task, listNames: string[], stageLabel: string): Promise<boolean> {
+  const listId = await findStageListId(task.board_id, listNames);
+  if (!listId) {
+    log.warn({ taskId: task.id, stageLabel }, 'Auto-pilot: không thấy list đích → dừng auto, chờ người');
+    await TrelloClient.addComment(task.card_id,
+      `⚠️ **[AUTO-PILOT]** Không thấy list **${stageLabel}** trên board để tự chuyển — kéo tay giúp (kiểm tra tên list cấu hình).`).catch(() => {});
+    return false;
+  }
+  await TrelloClient.moveCard(task.card_id, listId);
+  await TrelloClient.addComment(task.card_id, `🚀 **[AUTO-PILOT]** Tự chuyển card sang **${stageLabel}**…`).catch(() => {});
+  log.info({ taskId: task.id, stageLabel }, 'Auto-pilot: moved card to next stage');
+  return true;
 }
 
 /** Heading mục Ghi chú Dev — DevAgent/tester dùng chung để ghi & đọc (F2). */
