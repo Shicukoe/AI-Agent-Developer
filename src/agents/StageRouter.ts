@@ -237,14 +237,26 @@ export const StageRouter = {
       await TrelloClient.addComment(task.card_id,
         '🧩 **[AI AGENT]** Đây là **EPIC**. Khi bạn gắn nhãn **`plan approve`**, tôi sẽ tự tạo các card con để thực thi.');
 
-      // If the approval label was added while planning was still running, create children now.
+      // Auto-pilot: TỰ chốt plan (không cần nhãn) → tạo card con → tự chạy card con đầu.
+      // Thường: nếu nhãn plan-approve đã gắn lúc planner còn chạy thì cũng tạo card con luôn.
       const card = await TrelloClient.getCard(task.card_id);
-      if (hasPlanApproveLabel(card.labels ?? [])) {
+      const auto = RepoRegistry.autoPilotForTask(task);
+      if (auto || hasPlanApproveLabel(card.labels ?? [])) {
         await this.onPlanApprove(task.card_id);
+        if (auto) await this.autoStartFirstChild(task);
       }
     } catch (err) {
       await OrchestratorAgent.handleError(task, err);
     }
+  },
+
+  /** AUTO-PILOT epic: kéo card con sequence NHỎ NHẤT (chưa xong) sang Dev để khởi động chuỗi tuần tự. */
+  async autoStartFirstChild(epicTask: Task): Promise<void> {
+    const first = TaskRepository.findSubTasks(epicTask.id)
+      .filter(c => c.status !== 'completed')
+      .sort((a, b) => EpicManager.childSequence(a) - EpicManager.childSequence(b))[0];
+    if (!first) return;
+    await autoPilotAdvance(first, config.TRELLO_DEV_LIST_NAMES, `Dev (epic card #${EpicManager.childSequence(first)})`).catch(() => {});
   },
 
   /** Planning stage: classify + produce/refine an overall plan, then wait for the plan-approve label. */
@@ -494,6 +506,7 @@ export const StageRouter = {
             await TrelloClient.addComment(task.card_id,
               `⚠️ **[AI AGENT]** Review PASS nhưng **merge vào integration branch \`${childMeta.base_branch}\` bị CONFLICT**. ` +
               `Kéo lại **Dev** để rebase/sửa rồi Test lại (chi tiết đã ghi memory).`);
+            if (RepoRegistry.autoPilotForTask(task)) await this.autoRetryOrHalt(task);
             return;
           }
         }
@@ -658,8 +671,8 @@ export const StageRouter = {
     let decision = '';
     try { decision = (JSON.parse(fresh.metadata ?? '{}') as { refine_decision?: string }).refine_decision ?? ''; } catch { /* metadata trống */ }
     if (decision === 'epic_solve') {
-      await TrelloClient.addComment(fresh.card_id,
-        'ℹ️ **[AUTO-PILOT]** Task là **EPIC** — auto-pilot tạm bỏ qua (epic cần lập kế hoạch + duyệt). Xử lý tay.').catch(() => {});
+      // EPIC → list Epic: runEpicPlanning sẽ TỰ chốt plan + sinh card con + tự chạy từng card con.
+      await autoPilotAdvance(fresh, config.TRELLO_EPIC_LIST_NAMES, 'Epic').catch(() => {});
       return;
     }
     if (decision === 'design_solve') {

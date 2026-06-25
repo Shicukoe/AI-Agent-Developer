@@ -6,6 +6,7 @@ import { RepoConfigRepository } from '../state/RepoConfigRepository.js';
 import { WorktreeManager } from '../git/WorktreeManager.js';
 import { GitClient } from '../git/GitClient.js';
 import { CardMemory } from './CardMemory.js';
+import { RepoRegistry } from '../repos/RepoRegistry.js';
 import { config, firstPlanningListName } from '../config.js';
 import { childLogger } from '../utils/logger.js';
 import type { Task } from '../state/TaskRepository.js';
@@ -235,7 +236,20 @@ export const EpicManager = {
     }
 
     const next = pending[0];
+    const seq = this.childSequence(next);
+    // Auto-pilot: TỰ kéo card con kế sang Dev (không chờ người) → chuỗi epic chạy liền mạch.
+    if (RepoRegistry.autoPilotForTask(epicTask)) {
+      const lists = await TrelloClient.getLists(next.board_id).catch(() => []);
+      const want = new Set(config.TRELLO_DEV_LIST_NAMES.map(n => n.trim().toLowerCase()));
+      const devList = lists.find(l => want.has(l.name.trim().toLowerCase()));
+      if (devList) {
+        await TrelloClient.moveCard(next.card_id, devList.id).catch(() => {});
+        await TrelloClient.addComment(next.card_id,
+          `🚀 **[AUTO-PILOT]** Tới lượt card con #${seq} → tự chuyển sang **Dev**.`).catch(() => {});
+        return;
+      }
+    }
     await TrelloClient.addComment(next.card_id,
-      `▶️ **[AI AGENT]** Tới lượt card con này (sequence ${this.childSequence(next)}). Kéo sang **Dev** để làm.`).catch(() => {});
+      `▶️ **[AI AGENT]** Tới lượt card con này (sequence ${seq}). Kéo sang **Dev** để làm.`).catch(() => {});
   },
 };
