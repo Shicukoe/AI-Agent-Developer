@@ -124,7 +124,7 @@ async function handleAdminCommand(msg: AdminCommandMsg): Promise<AdminResultMsg>
     const lists = await TrelloClient.getLists(card.idBoard);
     const stage = stageForListName(lists.find(l => l.id === card.idList)?.name ?? '');
     if (!stage) return { ...base, ok: false, code: 'bad_request', error: 'Card không ở list stage nào' };
-    StageRouter.dispatch(stage, card, card.idList);
+    StageRouter.dispatch(stage, card, card.idList, true);   // force: Rerun là chạy lại CÓ CHỦ ĐÍCH (bỏ guard idempotency)
     return { ...base, ok: true, data: { stage } };
   }
   if (msg.cmd === 'modify') {

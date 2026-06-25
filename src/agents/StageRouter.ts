@@ -31,6 +31,9 @@ import type { Stage, TrelloCard } from '../trello/types.js';
 
 const log = childLogger('stage-router');
 
+/** Task id đang trong hàng đợi/đang chạy (per-process). Chống ENQUEUE TRÙNG khi bị trigger đúp. */
+const activeDispatch = new Set<string>();
+
 function slugify(name: string): string {
   return name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 40);
 }
@@ -65,8 +68,11 @@ function findOrCreateTask(card: TrelloCard, listId: string, repo: ResolvedRepo):
 }
 
 export const StageRouter = {
-  /** Entry point when a card enters a stage list (caller has already verified the AI label). */
-  dispatch(stage: Stage, card: TrelloCard, listId: string): void {
+  /**
+   * Entry point when a card enters a stage list (caller has already verified the AI label).
+   * `force` = bỏ qua guard idempotency (dùng cho lệnh Rerun ở admin — chạy lại có chủ đích).
+   */
+  dispatch(stage: Stage, card: TrelloCard, listId: string, force = false): void {
     // Xác định repo của card theo BOARD. Board chưa cấu hình (khi đã có cấu hình khác) → nhắc admin, KHÔNG tạo Task.
     const repo = RepoRegistry.resolveForBoard(card.idBoard);
     if ('error' in repo) {
@@ -75,11 +81,35 @@ export const StageRouter = {
       return;
     }
 
-    const isNew = !TaskRepository.findByCardId(card.id);
+    // IDEMPOTENCY: tránh xử lý lại task đã xong / đang chạy khi bị trigger TRÙNG (auto-pilot move card + poller
+    // re-dispatch, kéo-thả lặp, sự kiện đúp). Restart đã an toàn (scan bỏ qua card có Task); chỗ này lo poller.
+    const prior = TaskRepository.findByCardId(card.id);
+    if (prior && !force) {
+      const IN_FLIGHT = new Set(['processing', 'developing', 'testing']);
+      if (IN_FLIGHT.has(prior.status)) {
+        log.info({ taskId: prior.id, status: prior.status, stage }, 'Bỏ qua dispatch trùng: task đang xử lý');
+        return;   // đang chạy stage khác → KHÔNG chạy song song lần 2
+      }
+      if (prior.status === 'completed') {
+        log.info({ taskId: prior.id, stage }, 'Bỏ qua dispatch: task đã hoàn thành');
+        void TrelloClient.addComment(card.id,
+          'ℹ️ **[AI AGENT]** Task này đã **hoàn thành** — bỏ qua chạy lại. Muốn làm lại: nút **Rerun** ở admin, hoặc sửa nội dung card rồi kéo lại.').catch(() => {});
+        return;
+      }
+    }
+
+    const isNew = !prior;
     const task = findOrCreateTask(card, listId, repo);
+    // Chống ENQUEUE TRÙNG (đóng nốt khe TOCTOU của guard status ở trên): mỗi task chỉ 1 job trong hàng đợi.
+    if (!force && activeDispatch.has(task.id)) {
+      log.info({ taskId: task.id, stage }, 'Bỏ qua dispatch trùng: task đã trong hàng đợi/đang chạy');
+      return;
+    }
+    activeDispatch.add(task.id);
     log.info({ taskId: task.id, cardId: card.id, stage, repo: repo.name }, 'Dispatching stage');
 
     TaskQueue.run(task.id, async () => {
+     try {
       // Chỉ mục tĩnh (grep, rẻ) — dựng nếu chưa có để agent TRA thay vì đọc lặp. Lỗi không chặn task.
       const idxPath = join(repo.docsPath, '00_CHI_MUC.md');
       if (!existsSync(idxPath)) await IndexAgent.build(repo.repoPath, idxPath).catch(() => {});
@@ -111,6 +141,9 @@ export const StageRouter = {
         case 'dev': await this.runDev(fresh); break;
         case 'test': await this.runTest(fresh); break;
       }
+     } finally {
+       activeDispatch.delete(task.id);   // job xong (kể cả lỗi) → cho phép trigger sau
+     }
     });
   },
 
