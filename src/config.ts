@@ -18,6 +18,8 @@ const schema = z.object({
   TRELLO_PLANNING_LIST_NAMES: csv('Planning'),
   TRELLO_DEV_LIST_NAMES: csv('Dev'),
   TRELLO_TEST_LIST_NAMES: csv('Test'),
+  // List "Done" — auto-pilot tự kéo card sang đây khi Test PASS (cuối luồng). KHÔNG phải stage (không xử lý lại).
+  TRELLO_DONE_LIST_NAMES: csv('Done'),
   TRELLO_INFO_LIST_NAMES: csv('Info'),
   // List đích cho card tài liệu do DocCardExecutor sinh ra (fallback: Info list, rồi list nguồn).
   TRELLO_DOCS_LIST_NAMES: csv('Docs'),

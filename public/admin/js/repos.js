@@ -88,8 +88,8 @@
       } else if (act === 'provision') {
         var rp = await AdminApi.post('/repos/' + id + '/provision', {});
         var p = (rp && rp.provision) || {};
-        var nl = (p.createdLists || []).length, nb = (p.createdLabels || []).length;
-        U.toast((nl + nb) ? ('Đã tạo ' + nl + ' list + ' + nb + ' label còn thiếu.') : 'Board đã đủ list/label.', 'success');
+        var nl = (p.createdLists || []).length, nb = (p.createdLabels || []).length, nr = (p.renamedLabels || []).length;
+        U.toast((nl + nb + nr) ? ('Đã tạo ' + nl + ' list, ' + nb + ' label mới, đổi tên ' + nr + ' nhãn màu rỗng.') : 'Board đã đủ list/label.', 'success');
       } else if (act === 'gendocs') {
         if (!confirm('Sinh tài liệu dự án vào docs/ (chạy nền, có thể vài phút)? Sau đó review + commit.')) return;
         var r = await AdminApi.post('/repos/' + id + '/gen-docs', {});

@@ -29,10 +29,18 @@ function createInfoCardDescription(): string {
   return (
     `${INFO_CARD_MARKER}\n\n` +
     `Đây là thẻ hướng dẫn dành cho AutoPilot Agent. Giữ thẻ này trong list **${firstInfoListName()}** để làm tài liệu tham khảo.\n\n` +
+    `## 🤖 Board FULL-AUTO (bật nút robot ở admin → Repos)\n` +
+    `Chỉ cần **tạo card + gắn nhãn \`AI\`** → agent TỰ chạy hết: **BA → BA kỹ thuật → Plan (khi cần) → Dev → Test (lặp tới khi đạt) → Done**.\n` +
+    `• KHÔNG cần kéo card qua các list — agent tự chuyển. Card xong tự nằm ở list **Done**.\n` +
+    `• Gắn thêm nhãn **\`BA kỹ thuật\`** nếu muốn AI phân tích kỹ thuật sâu + sinh test case.\n` +
+    `• Test PASS → KHÔNG auto-merge: branch \`feature/...\` sẵn sàng, bạn tự review + merge.\n` +
+    `• Sửa nhiều lần vẫn FAIL (quá ngưỡng) / cần làm rõ → agent dừng (halt) chờ bạn xem.\n\n` +
+    `---\n` +
+    `## ✋ Board THƯỜNG (không bật full-auto)\n` +
     `• Để kích hoạt agent cho một task, gắn nhãn **AI** lên card.\n` +
     `• Task còn sơ sài? Kéo vào list **Refine** để AI làm rõ & chuẩn hoá; trả lời câu hỏi rồi reply \`REFINE\`.\n` +
-    `• Gắn nhãn **plan approve** khi kế hoạch đã được duyệt.\n` +
-    `• Các list quan trọng: **Refine**, **Epic**, **Planning**, **Dev**, **Test**.\n` +
+    `• Gắn nhãn **plan approve** khi kế hoạch đã được duyệt; tự kéo card qua **Dev**, **Test**.\n` +
+    `• Các list quan trọng: **Refine**, **Epic**, **Planning**, **Dev**, **Test**, **Done**.\n` +
     `• Tài liệu dự án (cho Refine) nằm ở thư mục \`docs/\` — sinh bằng \`npm run gen-docs\` hoặc nút **Generate docs** ở admin.\n` +
     `• Không xoá thẻ này; nó là tài liệu setup cho board.\n\n` +
     `---\n` +
@@ -152,9 +160,20 @@ async function main(): Promise<void> {
         if (isLabelName(event.labelName, config.TRELLO_PLAN_APPROVE_LABEL_NAME)) { await StageRouter.onPlanApprove(event.cardId); return; }
         if (isLabelName(event.labelName, config.TRELLO_AI_LABEL_NAME)) {
           const card = await TrelloClient.getCard(event.cardId);
+          if (isInfoCard(card)) return;
           const lists = await TrelloClient.getLists(event.boardId);
           const stage = stageForListName(lists.find(l => l.id === card.idList)?.name ?? '');
-          if (stage) StageRouter.dispatch(stage, card, card.idList);
+          if (stage) { StageRouter.dispatch(stage, card, card.idList); return; }
+          // Card KHÔNG ở list stage nào. Board full-auto: chỉ cần gắn nhãn AI là TỰ kéo sang Refine + chạy
+          // (poller thấy move → dispatch refine). Board thường: giữ nguyên — người tự kéo vào Refine.
+          if (RepoRegistry.autoPilotForBoard(event.boardId)) {
+            const want = config.TRELLO_REFINE_LIST_NAMES.map(n => n.trim().toLowerCase());
+            const refineList = lists.find(l => want.includes(l.name.trim().toLowerCase()));
+            if (refineList) {
+              await TrelloClient.moveCard(card.id, refineList.id).catch(() => {});
+              log.info({ cardId: card.id }, 'Auto-pilot: gắn nhãn AI → tự kéo sang Refine');
+            }
+          }
         }
         return;
       }

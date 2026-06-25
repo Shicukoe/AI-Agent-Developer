@@ -550,13 +550,16 @@ export const StageRouter = {
           ? ` Đã merge vào integration branch \`${childMeta.base_branch}\`.`
           : ` Branch \`${fresh.branch_name}\` sẵn sàng merge vào \`${repoBase}\`.`;
         await TrelloClient.addComment(task.card_id, `✅ **[AI AGENT]** Review PASS.${mergedNote}`);
-        // Card con epic: tick tiến độ + nhắc card con kế tiếp (hoặc báo epic hoàn tất).
+        // Card con epic: tick tiến độ + nhắc/kéo card con kế tiếp.
         if (childMeta) {
           await EpicManager.markChildDone(fresh);
           await EpicManager.announceNext(fresh);
-        } else if (RepoRegistry.autoPilotForTask(task)) {
+        }
+        // Auto-pilot: kéo card đã xong sang Done (Done KHÔNG phải stage → không bị xử lý lại).
+        if (RepoRegistry.autoPilotForTask(task)) {
           await TrelloClient.addComment(task.card_id,
-            '🎉 **[AUTO-PILOT]** Hoàn tất! Test **PASS** — branch sẵn sàng, bạn review + merge tay khi muốn.').catch(() => {});
+            '🎉 **[AUTO-PILOT]** Hoàn tất! Test **PASS** — branch sẵn sàng (bạn review + merge tay khi muốn).').catch(() => {});
+          await autoPilotAdvance(fresh, config.TRELLO_DONE_LIST_NAMES, 'Done').catch(() => {});
         }
       } else {
         TaskRepository.setStatus(task.id, 'review_failed');

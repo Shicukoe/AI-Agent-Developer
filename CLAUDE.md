@@ -28,9 +28,20 @@ AdminServer (supervisor) ── đọc SQLite chung; lệnh task (rerun/modify/c
 ```
 
 - **Một card = một Task** (SQLite chung mọi worker), đi qua các stage theo thời gian.
-- Người dùng **tự kéo card**; agent không tự di chuyển card. Chốt plan = gắn nhãn **`plan approve`**.
+- Người dùng **tự kéo card** (board thường); agent không tự di chuyển card. Chốt plan = gắn nhãn **`plan approve`**.
 - Điều phối ở `src/agents/StageRouter.ts`; `OrchestratorAgent` chỉ còn `handleError` dùng chung.
 - **Cách ly lỗi:** 1 worker crash không ảnh hưởng dự án khác (tự restart, backoff). DB dùng WAL (đa-process).
+
+## Full-auto (auto-pilot) — theo TỪNG board
+
+Bật bằng **nút robot 🤖** ở admin → Repos (cột `auto_pilot` trong `repo_configs`; helper `RepoRegistry.autoPilotForTask/autoPilotForBoard`). Board KHÔNG bật → thủ công như trên (an toàn). Khi BẬT:
+- Chỉ cần **tạo card + gắn nhãn `AI`** → agent tự kéo sang Refine + chạy hết: **BA → BA kỹ thuật (nếu có nhãn) → Planning (chỉ khi `design_solve`) → Dev → Test (lặp) → Done**. KHÔNG cần kéo tay, KHÔNG cần `plan approve`.
+- **Cơ chế auto-advance:** agent `moveCard` sang list stage kế → poller tự `dispatch` (cùng cơ chế kéo tay). Hàm `autoPilotAdvance` + `autoAdvanceAfterRefine` + `autoRetryOrHalt` (StageRouter), `EpicManager.announceNext` tự kéo card con kế.
+- **Planning không bị ép:** chạy khi BA kỹ thuật quyết `design_solve`; `trivial`/`doc` → thẳng Dev; `epic` → Epic (tự chốt + sinh + chạy tuần tự card con).
+- **Test PASS** → status `completed`, card tự sang list **`Done`** (`TRELLO_DONE_LIST_NAMES`; KHÔNG phải stage nên không xử lý lại). **KHÔNG auto-merge** — người tự merge `feature/...`.
+- **Dừng (halt) chờ người:** FAIL quá `MAX_DEV_RETRY_ATTEMPTS` · `NEEDS_INFO` · Dev không tạo thay đổi · epic merge-conflict quá ngưỡng.
+- **Idempotency** (vì move+poller dễ trigger trùng): `dispatch(...,force)` bỏ qua task `completed`/IN_FLIGHT; Set `activeDispatch` chặn enqueue trùng; restart-scan bỏ qua card đã có Task; admin **Rerun** dùng `force=true`.
+- **Board provisioning:** thêm board→repo ở admin tự tạo list (`Refine/Planning/Dev/Test/Epic/Done/Info/Docs`) + **đặt tên cho nhãn màu rỗng sẵn có** (`AI`/`plan approve`/`quick`/`BA kỹ thuật`, giữ màu — khỏi sinh chip trùng).
 
 ## Đa-repo (1 board = 1 repo)
 

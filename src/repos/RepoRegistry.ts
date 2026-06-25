@@ -107,6 +107,11 @@ export const RepoRegistry = {
     return !!cfg?.auto_pilot;
   },
 
+  /** Board này có bật full-auto không (tra theo board_id). Dùng khi chưa có Task (vd lúc gắn nhãn AI). */
+  autoPilotForBoard(boardId: string): boolean {
+    return !!RepoConfigRepository.getByBoard(boardId)?.auto_pilot;
+  },
+
   /** Đường dẫn docs cho 1 task (tra theo repo_key, fallback <repo_path>/docs). */
   docsPathForTask(task: Task): string {
     const cfg = task.repo_key ? RepoConfigRepository.getById(task.repo_key) : undefined;

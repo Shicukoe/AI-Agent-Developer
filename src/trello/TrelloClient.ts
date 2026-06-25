@@ -65,6 +65,14 @@ export const TrelloClient = {
     });
   },
 
+  /** Đổi tên 1 label đã có (giữ nguyên màu) — dùng để đặt tên cho nhãn màu rỗng-tên sẵn có. */
+  async updateLabel(labelId: string, name: string): Promise<TrelloLabel> {
+    return trelloFetch<TrelloLabel>(`/labels/${labelId}`, {
+      method: 'PUT',
+      body: JSON.stringify({ name }),
+    });
+  },
+
   async getBoardActions(boardId: string, opts: { since?: string; filter?: string } = {}): Promise<TrelloAction[]> {
     const filter = opts.filter ?? 'updateCard,commentCard,addMemberToCard';
     const since = opts.since ? `&since=${opts.since}` : '';
