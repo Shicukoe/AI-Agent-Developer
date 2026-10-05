@@ -1,5 +1,10 @@
 # AI Agent Developer
 
+> **Why the commit history is so short:** this project was one part of a larger system I worked on during my
+> internship. The original repository belongs to the company and its code is private, so I couldn't bring the
+> full history with me. What's here is the part I'm allowed to keep, cleaned of anything internal and committed
+> to this repository recently.
+
 This project lets you write a task on a Trello card and get back a code change on its own Git branch, already
 reviewed by an AI. I built it during a 2026 internship. The developers on my team kept getting small bug
 reports and feature requests that took more time to read and understand than to fix, and I wanted to see how
