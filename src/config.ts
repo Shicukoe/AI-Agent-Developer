@@ -103,7 +103,6 @@ const schema = z.object({
   PROJECT_DOCS_PATH: z.string().optional(),
   GIT_USER_NAME: z.string().default('AI Agent'),
   GIT_USER_EMAIL: z.string().default('ai-agent@local'),
-  GITLAB_TOKEN: z.string().optional(),
 
   // Agent behavior
   MAX_SUBTASKS_PARALLEL: num(3),

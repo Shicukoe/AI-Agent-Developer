@@ -316,7 +316,6 @@ GIT_WORKTREE_BASE=D:\Coding_Stuffs\agent-worktrees
 GIT_DEFAULT_BASE_BRANCH=dev
 GIT_USER_NAME=AI Agent
 GIT_USER_EMAIL=ai-agent@users.noreply.github.com
-GITLAB_TOKEN=glpat-...          # để push branches
 
 # Agent behavior
 MAX_SUBTASKS_PARALLEL=3         # DevAgent concurrency

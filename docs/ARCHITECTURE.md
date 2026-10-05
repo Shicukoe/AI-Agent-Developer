@@ -137,7 +137,7 @@ Không worktree → `StageRouter.runBranchReview` đọc directive trong mô t�
 
 - **Auto-clone repo:** admin nhập git URL → agent `git clone` vào thư mục chuẩn (xử lý credential).
 - **Review chạy thật:** ReviewAgent checkout + `npm test/build` trong sandbox (cho phép Bash allowlist).
-- **GitLab MR review:** directive `MR: <url>` → lấy diff MR qua API.
+- **GitHub PR review:** directive `PR: <url>` → lấy diff PR qua API.
 - **UsageRepository:** lưu token/chi phí mỗi call (port từ origin/dev) + view admin.
 - **Thêm executor `kind`:** `claude/types.ts` (TaskKind) + `agents/executors/*` + `registry.ts`.
 
