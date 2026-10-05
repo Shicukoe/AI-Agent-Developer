@@ -24,21 +24,21 @@
                     <button class="btn btn-light-theme" id="refreshBtn"><i class="bi bi-arrow-clockwise me-1"></i>Làm mới</button>
                 </div>
             </div>
-            <p class="text-secondary small mb-4 mt-2">Mỗi <b>board Trello = 1 repo</b>. Card trên board nào → task chạy ở repo đó.</p>
+            <p class="text-secondary small mb-4 mt-2">Mỗi board Trello được gắn với một repo. Card nằm trên board nào thì task chạy trên repo đó.</p>
 
             <!-- Form thêm dự án -->
             <div class="card mt-2">
                 <div class="card-body">
                     <h6 class="mb-1">Thêm dự án mới</h6>
-                    <p class="text-secondary fs-12 mb-3">Bước: ① tạo board Trello, copy board id · ② <code>git clone</code> source về 1 thư mục trên máy chủ · ③ điền bên dưới → Lưu.</p>
+                    <p class="text-secondary fs-12 mb-3">Tạo board Trello và lấy board ID, clone repo cần xử lý về máy đang chạy agent, rồi điền thông tin bên dưới và bấm Lưu. Khi lưu, các list và nhãn còn thiếu sẽ được tạo trên board.</p>
                     <div class="row g-2">
                         <div class="col-12 col-md-6">
                             <label class="form-label fs-12 fw-bold mb-1">Board ID</label>
-                            <input type="text" class="form-control form-control-sm" id="f_board" placeholder="vd your_trello_board_id">
+                            <input type="text" class="form-control form-control-sm" id="f_board" placeholder="ID 24 ký tự (thêm .json vào cuối URL board để xem)">
                         </div>
                         <div class="col-12 col-md-6">
                             <label class="form-label fs-12 fw-bold mb-1">Tên dự án</label>
-                            <input type="text" class="form-control form-control-sm" id="f_name" placeholder="vd Profile website">
+                            <input type="text" class="form-control form-control-sm" id="f_name" placeholder="Tên hiển thị trong trang admin">
                         </div>
                         <div class="col-12 col-md-8">
                             <label class="form-label fs-12 fw-bold mb-1">Đường dẫn repo (tuyệt đối, đã clone)</label>
@@ -47,16 +47,16 @@
                         <div class="col-12 col-md-4">
                             <label class="form-label fs-12 fw-bold mb-1">Base branch</label>
                             <input type="text" class="form-control form-control-sm" id="f_base" value="main" placeholder="dev / staging / main…">
-                            <span class="text-secondary fs-12">Nhánh agent tách feature + so diff. Mỗi repo có thể khác (dev, staging…).</span>
+                            <span class="text-secondary fs-12">Nhánh gốc để tạo nhánh feature và so sánh thay đổi.</span>
                         </div>
                         <div class="col-12">
                             <label class="form-label fs-12 fw-bold mb-1">Docs path (tùy chọn)</label>
-                            <input type="text" class="form-control form-control-sm" id="f_docs" placeholder="trống = <repo>/docs — thư mục tài liệu để Refine đọc (sinh bằng Generate docs)">
+                            <input type="text" class="form-control form-control-sm" id="f_docs" placeholder="Để trống = <repo>/docs. Thư mục tài liệu agent đọc khi phân tích card.">
                         </div>
                         <div class="col-12">
                             <label class="form-label fs-12 fw-bold mb-1">Repo ngữ cảnh — chỉ đọc (tùy chọn)</label>
-                            <textarea class="form-control form-control-sm" id="f_ctx" rows="2" placeholder="Mỗi dòng 1 đường dẫn repo khác để agent ĐỌC tham khảo (vd module Permit). KHÔNG sửa code ở đây."></textarea>
-                            <span class="text-secondary fs-12">Agent đọc thêm các repo này để hiểu module liên quan; vẫn chỉ ghi code ở repo chính.</span>
+                            <textarea class="form-control form-control-sm" id="f_ctx" rows="2" placeholder="Mỗi dòng một đường dẫn repo."></textarea>
+                            <span class="text-secondary fs-12">Các repo agent được đọc để tham khảo khi task liên quan tới code nằm ở repo khác. Code chỉ được ghi vào repo chính.</span>
                         </div>
                     </div>
                     <div class="mt-3">

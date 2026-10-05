@@ -94,21 +94,21 @@
     var wpct = Math.round(wk.pct || 0);
     var wcol = wpct >= 90 ? '#ef4444' : wpct >= 70 ? '#f59e0b' : '#06b6d4';
     return '<div class="ap-tile h-100 d-flex flex-column align-items-center justify-content-center text-center p-3">' +
-      '<div class="text-secondary small fw-semibold mb-2"><i class="bi bi-hourglass-split me-1"></i>Session 5h · % giới hạn THẬT</div>' +
+      '<div class="text-secondary small fw-semibold mb-2"><i class="bi bi-hourglass-split me-1"></i>Phiên 5 giờ · % giới hạn của gói</div>' +
       '<div class="ap-gauge" style="background:conic-gradient(' + col + ' ' + (pct * 3.6) + 'deg,#e9edf5 0)">' +
         '<div class="ap-gauge-hole"><div class="ap-gauge-num">' + pct + '<span class="ap-gauge-pct">%</span></div></div>' +
       '</div>' +
       '<div class="small mt-2 fw-semibold"><i class="bi bi-clock-history me-1 text-theme"></i>' + U.escapeHtml(fmtReset(s.remainingMinutes)) + '</div>' +
       (s.tokens != null
-        ? '<div class="text-secondary fs-12 mt-1">đã dùng <span class="fw-semibold text-dark">' + U.fmtTokens(s.tokens) + '</span> token thật (in ' + U.fmtTokens(s.input) + ' · out ' + U.fmtTokens(s.output) + ')' +
-          (s.cacheRead ? '<br>cache đọc lại ' + U.fmtTokens(s.cacheRead) + ' (không tính giới hạn)' : '') + '</div>'
+        ? '<div class="text-secondary fs-12 mt-1">đã dùng <span class="fw-semibold text-dark">' + U.fmtTokens(s.tokens) + '</span> token (in ' + U.fmtTokens(s.input) + ' · out ' + U.fmtTokens(s.output) + ')' +
+          (s.cacheRead ? '<br>cache đọc lại ' + U.fmtTokens(s.cacheRead) + ' (không tính vào giới hạn)' : '') + '</div>'
         : '') +
       '<div class="w-100 px-2 mt-3">' +
         '<div class="d-flex justify-content-between fs-12 mb-1"><span class="text-secondary">Tuần (7 ngày)</span><span class="fw-semibold">' + wpct + '%</span></div>' +
         '<div class="ap-bar"><div class="ap-bar-fill" style="width:' + Math.max(2, wpct) + '%;background:linear-gradient(90deg,#06b6d4,' + wcol + ')"></div></div>' +
         (wk.remainingMinutes != null ? '<div class="text-secondary fs-12 mt-1 text-start">' + U.escapeHtml(fmtReset(wk.remainingMinutes)) + '</div>' : '') +
       '</div>' +
-      '<div class="mt-3"><span class="badge bg-light-green text-success fs-12"><i class="bi bi-patch-check me-1"></i>Anthropic /usage · số thật</span></div>' +
+      '<div class="mt-3"><span class="badge bg-light-green text-success fs-12"><i class="bi bi-patch-check me-1"></i>Nguồn: Anthropic /usage</span></div>' +
       '</div>';
   }
 
@@ -123,8 +123,8 @@
       ? '<div class="ap-gauge-num">' + pct + '<span class="ap-gauge-pct">%</span></div>'
       : '<div class="ap-gauge-num" style="font-size:1.05rem">' + U.fmtTokens(s.tokens) + '</div>';
     var sub = has
-      ? U.fmtTokens(s.tokens) + ' / ' + U.fmtTokens(s.limitTokens) + ' token thật'
-      : '<span class="text-warning fs-12">trần chưa có — đặt USAGE_SESSION_LIMIT_TOKENS</span>';
+      ? U.fmtTokens(s.tokens) + ' / ' + U.fmtTokens(s.limitTokens) + ' token'
+      : '<span class="text-warning fs-12">Chưa đặt giới hạn (USAGE_SESSION_LIMIT_TOKENS)</span>';
 
     // Dòng phụ: thời gian còn lại trong block (ccusage).
     var extra = '';
@@ -135,15 +135,15 @@
     }
     // Cache chỉ ghi chú nhỏ để biết — KHÔNG tính vào % (đọc lại, rất rẻ).
     var cacheNote = s.cacheRead
-      ? '<div class="text-secondary fs-12">cache đọc lại ' + U.fmtTokens(s.cacheRead) + ' (không tính)</div>' : '';
+      ? '<div class="text-secondary fs-12">cache đọc lại ' + U.fmtTokens(s.cacheRead) + ' (không tính vào giới hạn)</div>' : '';
     var srcBadge = s.source === 'ccusage'
-      ? '<span class="badge bg-light-green text-success fs-12">ccusage · block 5h thật</span>'
-      : '<span class="badge bg-light-theme text-theme fs-12">tự đo (DB)</span>';
+      ? '<span class="badge bg-light-green text-success fs-12">Nguồn: ccusage</span>'
+      : '<span class="badge bg-light-theme text-theme fs-12">Nguồn: DB nội bộ</span>';
     var limTag = (has && s.limitSource === 'auto-max')
-      ? '<div class="text-secondary fs-12 mt-1">trần tự hiệu chỉnh theo block in+out cao nhất</div>' : '';
+      ? '<div class="text-secondary fs-12 mt-1">Giới hạn ước tính theo block in+out cao nhất</div>' : '';
 
     return '<div class="ap-tile h-100 d-flex flex-column align-items-center justify-content-center text-center p-3">' +
-      '<div class="text-secondary small fw-semibold mb-2"><i class="bi bi-hourglass-split me-1"></i>Cửa sổ session ' + (s.hours || 5) + 'h · token thật (in+out)</div>' +
+      '<div class="text-secondary small fw-semibold mb-2"><i class="bi bi-hourglass-split me-1"></i>Phiên ' + (s.hours || 5) + ' giờ · token (in+out)</div>' +
       '<div class="ap-gauge" style="background:conic-gradient(' + col + ' ' + (ring * 3.6) + 'deg,#e9edf5 0)">' +
         '<div class="ap-gauge-hole">' + center + '</div>' +
       '</div>' +
@@ -157,7 +157,7 @@
   // Thanh token theo khâu (gradient), sắp xếp nhiều → ít.
   function stagePanel(rows, total) {
     if (!rows.length) {
-      return '<div class="ap-tile h-100 d-flex align-items-center justify-content-center text-secondary p-4">Chưa có dữ liệu token. Chạy vài card để bắt đầu đo.</div>';
+      return '<div class="ap-tile h-100 d-flex align-items-center justify-content-center text-secondary p-4">Chưa có dữ liệu token.</div>';
     }
     var max = rows.reduce(function (m, r) { return Math.max(m, r.tokens); }, 0) || 1;
     var bars = rows.map(function (r) {
@@ -174,7 +174,7 @@
         '</div>';
     }).join('');
     return '<div class="ap-tile h-100 p-3">' +
-      '<div class="text-secondary small fw-semibold mb-3"><i class="bi bi-bar-chart-steps me-1"></i>Token thật theo khâu (in+out, bỏ cache) · tổng ' + U.fmtTokens(total) + '</div>' +
+      '<div class="text-secondary small fw-semibold mb-3"><i class="bi bi-bar-chart-steps me-1"></i>Token theo khâu (in+out, không tính cache) · tổng ' + U.fmtTokens(total) + '</div>' +
       bars + '</div>';
   }
 

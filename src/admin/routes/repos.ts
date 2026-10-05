@@ -62,7 +62,7 @@ export function reposRouter(registry: WorkerRegistry): Router {
   router.post('/repos', wrap(async (req, res) => {
     const { board_id, name, repo_path, base_branch, enabled, docs_path } = req.body ?? {};
     if (!board_id || !name || !repo_path) {
-      res.status(400).json({ error: 'Cần board_id, name, repo_path.' }); return;
+      res.status(400).json({ error: 'Cần nhập Board ID, tên dự án và đường dẫn repo.' }); return;
     }
     if (RepoConfigRepository.getByBoard(String(board_id))) {
       res.status(409).json({ error: 'Board này đã được cấu hình. Hãy sửa bản ghi hiện có.' }); return;
@@ -135,7 +135,7 @@ export function reposRouter(registry: WorkerRegistry): Router {
       log.error({ repoPath: cfg.repo_path, err: (err as Error).message }, 'gen-docs nền lỗi'));
     log.info({ repoPath: cfg.repo_path, docsPath, mode: mode || 'auto' }, 'gen-docs nền: bắt đầu');
     const label = mode === 'continue' ? 'bổ sung phần thiếu' : mode === 'deepen' ? 'làm sâu file mỏng' : mode === 'full' ? 'sinh lại toàn bộ' : 'auto';
-    res.json({ ok: true, message: `Đang sinh tài liệu (${label}) nền vào ${docsPath}. Xem log; xong thì review + commit.` });
+    res.json({ ok: true, message: `Đang tạo tài liệu (${label}) trong ${docsPath}. Tiến trình hiện trong log; khi xong hãy kiểm tra lại rồi commit.` });
   }));
 
   // Sinh SỔ LUẬT FRAMEWORK (00_FRAMEWORK_RULES.md) — tri thức để ReviewAgent test đúng. Chạy NỀN.
@@ -146,7 +146,7 @@ export function reposRouter(registry: WorkerRegistry): Router {
     void generateFrameworkRules(cfg.repo_path, docsPath).catch(err =>
       log.error({ repoPath: cfg.repo_path, err: (err as Error).message }, 'gen-rules nền lỗi'));
     log.info({ repoPath: cfg.repo_path, docsPath }, 'gen-rules nền: bắt đầu');
-    res.json({ ok: true, message: `Đang sinh Sổ luật framework nền vào ${docsPath}/00_FRAMEWORK_RULES.md. Xem log; xong thì review + commit.` });
+    res.json({ ok: true, message: `Đang tạo ${docsPath}/00_FRAMEWORK_RULES.md. Tiến trình hiện trong log; khi xong hãy kiểm tra lại rồi commit.` });
   }));
 
   // Xoá cấu hình repo.

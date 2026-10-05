@@ -4,11 +4,8 @@
   'use strict';
 
   var NAV = [
-    { href: 'index.html', icon: 'bi-kanban', label: 'Tasks', enabled: true },
-    { href: 'repos.html', icon: 'bi-hdd-stack', label: 'Repos / Dự án', enabled: true },
-    { href: 'skills.html', icon: 'bi-stars', label: 'Skills / Prompts', enabled: false },
-    { href: 'agents.html', icon: 'bi-robot', label: 'Agents', enabled: false },
-    { href: 'mcp.html', icon: 'bi-plugin', label: 'MCP', enabled: false },
+    { href: 'index.html', icon: 'bi-kanban', label: 'Tasks' },
+    { href: 'repos.html', icon: 'bi-hdd-stack', label: 'Repos / Dự án' },
   ];
 
   function currentFile() {
@@ -20,12 +17,6 @@
     var cur = currentFile();
     return NAV.map(function (n) {
       var active = n.href === cur ? ' active' : '';
-      if (!n.enabled) {
-        return '<li class="nav-item"><a class="nav-link disabled text-muted" tabindex="-1" aria-disabled="true">' +
-          '<div class="avatar avatar-40 icon"><i class="bi ' + n.icon + '"></i></div>' +
-          '<div class="col">' + n.label + '</div>' +
-          '<div class="arrow"><span class="badge bg-secondary">Sắp có</span></div></a></li>';
-      }
       return '<li class="nav-item"><a class="nav-link' + active + '" href="' + n.href + '">' +
         '<div class="avatar avatar-40 icon"><i class="bi ' + n.icon + '"></i></div>' +
         '<div class="col">' + n.label + '</div>' +
