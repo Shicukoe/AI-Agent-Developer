@@ -57,36 +57,15 @@ The same Test stage also works for code a person wrote. Push your branch, put `B
 description, and drag the card to Test. The agent reviews that branch without changing anything. The next time
 you do it, it only looks at the commits added since its last review.
 
-## What was hard
+## Lessons and limits
 
-The first version was expensive. A single agent tried to understand the whole repo for every card and burned
-through tokens. I split that job into the cheap triage step, the business analyst, and the optional technical
-step. I also added a plain-text index of the repo, built with grep and no AI at all, so agents can look up
-"where does X live" instead of searching for it again every time. Every model call is logged with its token
-count, and the admin page shows the cost per task and per stage. That's how I found out that review is by far
-the most expensive step. In one full-auto run, review used about 2.2 million input tokens out of roughly 2.8
-million for the whole card.
-
-The second problem was running several projects at once. Each Trello board maps to one repo, and each project
-runs in its own worker process, so if one project crashes the others keep going. Inside one project, several
-cards can run at the same time. They all share one Git repository, and commands like `git fetch` break when two
-of them run at once, so I put a small per-repo lock around just those Git commands. The slow AI work still runs
-in parallel.
-
-Full-auto brought its own bug. When an agent moves a card, the Trello poller also notices the move, so the same
-job could start twice. A check on the task status plus a record of which jobs are already running fixed that.
-
-Claude's command-line tool was the last headache. Sometimes it finished its work but never exited. Sometimes it
-answered without the JSON I asked for. The client now stops the process as soon as Claude reports it's done, and
-retries up to twice when the JSON is missing. If the analyst still fails, it falls back to the original card
-text, so one bad answer doesn't sink the whole task.
-
-## What it doesn't do yet
-
-The reviewer reads code, but it doesn't run the project's tests. That's the obvious next step. The command-line
-tool can also be slow on big repos. Setting an Anthropic API key makes the analysis steps go through the API
-instead, which is more reliable. And the system checks Trello every 30 seconds rather than reacting instantly.
-There is a webhook server in the code, but it needs a public URL to work.
+- **Cost.** One agent reading the whole repo per card burned through tokens, so I split the work into cheap
+  triage, a business analyst, and an optional technical step, plus a grep-built index of the repo. Token use is
+  logged per stage, which showed that review is the expensive part (about 2.2M of 2.8M input tokens in one run).
+- **Reliability.** Projects run in separate worker processes, Git commands are locked per repo so parallel
+  cards don't collide, and the Claude CLI client retries when the JSON is missing.
+- **Not done yet.** The reviewer reads code but doesn't run tests, and Trello is polled every 30 seconds
+  because the webhook server needs a public URL.
 
 ## Running it yourself
 
