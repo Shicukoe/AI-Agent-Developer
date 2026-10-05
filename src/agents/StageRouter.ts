@@ -186,6 +186,8 @@ export const StageRouter = {
       } else {
         await this.finalizeBusinessRefine(task, card, analyst);
       }
+      // design/epic không set status → còn 'processing' (IN_FLIGHT) thì lần kéo sang Planning/Epic bị dispatch bỏ qua.
+      if (TaskRepository.findById(task.id)?.status === 'processing') TaskRepository.setStatus(task.id, 'queued');
       // AUTO-PILOT: tự đẩy sang stage kế (chỉ board bật). needsInfo đã return ở trên nên tới đây refine đã quyết.
       if (RepoRegistry.autoPilotForTask(task)) await this.autoAdvanceAfterRefine(task);
     } catch (err) {

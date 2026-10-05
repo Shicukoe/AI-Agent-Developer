@@ -24,6 +24,7 @@ export function makeStreamHandler(tag: string, label?: string, onActivity?: () =
   let buffer = '';
   let finalText = '';
   let collected = '';
+  let cliError = '';
 
   const handleLine = (line: string): void => {
     let ev: any;
@@ -42,6 +43,9 @@ export function makeStreamHandler(tag: string, label?: string, onActivity?: () =
       }
     } else if (ev.type === 'result') {
       if (typeof ev.result === 'string') finalText = ev.result;
+      // Lỗi API (model sai/hết hạn, auth…) → text là "API Error: 404 {...}"; extractJson sẽ nhặt nhầm {...} làm kết quả.
+      // Bỏ qua error_max_turns: đã có output/thay đổi file dùng được.
+      if (ev.is_error && ev.subtype !== 'error_max_turns') cliError = finalText || ev.subtype || 'unknown';
       const u = ev.usage;
       if (u) {
         const cacheRead = u.cache_read_input_tokens ?? 0;
@@ -74,6 +78,7 @@ export function makeStreamHandler(tag: string, label?: string, onActivity?: () =
       if (rest) handleLine(rest);
     },
     result(): string {
+      if (cliError) throw new Error(`Claude CLI error: ${cliError.slice(0, 300)}`);
       return (finalText || collected).trim();
     },
   };

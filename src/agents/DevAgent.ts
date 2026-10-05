@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, writeFileSync } from 'fs';
+import { existsSync } from 'fs';
 import { join } from 'path';
 import { execa } from 'execa';
 import { TrelloClient } from '../trello/TrelloClient.js';
@@ -38,30 +38,6 @@ function resolveClaudeCli(): string {
   }
 
   return 'claude'; // fall back to PATH
-}
-
-// Write .claude/settings.json in the worktree to pre-approve only the tools we need.
-// This avoids --dangerously-skip-permissions while still running non-interactively.
-function writeWorktreeSettings(worktreePath: string): void {
-  const settingsDir = join(worktreePath, '.claude');
-  mkdirSync(settingsDir, { recursive: true });
-  const settings = {
-    permissions: {
-      allow: [
-        'Read(*)',
-        'Edit(*)',
-        'Write(*)',
-        'Glob(*)',
-        'Grep(*)',
-      ],
-      deny: [
-        'Bash(*)',   // no shell execution — git handled by GitClient
-        'WebFetch(*)',
-        'WebSearch(*)',
-      ],
-    },
-  };
-  writeFileSync(join(settingsDir, 'settings.json'), JSON.stringify(settings, null, 2));
 }
 
 function buildPrompt(task: Task, planContext: string, worktreePath: string, repoPath: string, projectContext: string, memoryContext = ''): string {
@@ -105,9 +81,6 @@ export const DevAgent = {
     const prompt = buildPrompt(task, planContext, worktreePath, task.repo_path ?? config.GIT_REPO_PATH, projectContext, memoryContext);
     const timeoutMs = config.MAX_TASK_PROCESSING_MINUTES * 60 * 1000;
 
-    // Pre-approve tools via settings.json instead of --dangerously-skip-permissions
-    writeWorktreeSettings(worktreePath);
-
     await TrelloClient.addComment(
       task.card_id,
       `⚙️ **[AI AGENT]** DevAgent bắt đầu...\nBranch: \`${task.branch_name}\``,
@@ -126,9 +99,11 @@ export const DevAgent = {
         const proc = execa(claudeExe, [
           '--print',                                          // non-interactive, print and exit
           '--allowedTools', 'Edit,Write,Read,Grep,Glob',     // restrict to file tools only
+          '--disallowedTools', 'Bash,WebFetch,WebSearch',    // git do GitClient lo; KHÔNG ghi .claude/settings.json vào worktree (bị commit lẫn)
           '--max-turns', String(config.CLAUDE_MAX_TURNS_PER_TASK),
           '--output-format', 'stream-json',
           '--verbose',
+          '--setting-sources', 'project,local',              // bỏ plugin/hook cá nhân ở ~/.claude (xem ClaudeCliClient)
         ], {
           cwd: worktreePath,
           timeout: timeoutMs,

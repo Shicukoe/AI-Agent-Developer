@@ -93,6 +93,8 @@ export const ClaudeCliClient = {
       '--output-format', 'stream-json',
       '--verbose',
       '--max-turns', String(maxTurns),
+      // Bỏ settings cấp USER (~/.claude): plugin/hook cá nhân (vd SessionStart hook) chen vào prompt agent.
+      '--setting-sources', 'project,local',
     ];
 
     if (opts?.allowedTools && opts.allowedTools.length > 0) {
