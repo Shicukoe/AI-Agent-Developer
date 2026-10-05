@@ -1,0 +1,49 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 280" width="900" height="280" font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="15">
+  <defs>
+    <marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0 0L10 5L0 10z" fill="#5d6168"/>
+    </marker>
+  </defs>
+  <rect width="900" height="280" rx="14" fill="#fbfbf9"/>
+
+  <g fill="none" stroke="#5d6168" stroke-width="1.6" marker-end="url(#a)">
+    <path d="M130 140H168"/>
+    <path d="M280 140H468"/>
+    <path d="M280 128L318 60"/>
+    <path d="M430 60L468 128"/>
+    <path d="M280 152L318 220"/>
+    <path d="M430 220L468 152"/>
+    <path d="M580 140H618"/>
+    <path d="M730 140H768"/>
+    <path d="M675 118C675 78 525 78 525 116" stroke="#c0392b" stroke-dasharray="5 4"/>
+  </g>
+
+  <g stroke-width="1.6">
+    <rect x="20" y="118" width="110" height="44" rx="8" fill="#ffffff" stroke="#9aa0a8"/>
+    <rect x="170" y="118" width="110" height="44" rx="8" fill="#eef2fb" stroke="#2456c7"/>
+    <rect x="320" y="38" width="110" height="44" rx="8" fill="#eef2fb" stroke="#2456c7"/>
+    <rect x="320" y="198" width="110" height="44" rx="8" fill="#eef2fb" stroke="#2456c7"/>
+    <rect x="470" y="118" width="110" height="44" rx="8" fill="#eef2fb" stroke="#2456c7"/>
+    <rect x="620" y="118" width="110" height="44" rx="8" fill="#eef2fb" stroke="#2456c7"/>
+    <rect x="770" y="118" width="110" height="44" rx="8" fill="#e8f5ec" stroke="#2e8b57"/>
+  </g>
+
+  <g text-anchor="middle" fill="#1c1d1f" font-weight="600">
+    <text x="75" y="145">Card + AI</text>
+    <text x="225" y="145">Refine</text>
+    <text x="375" y="65">Planning</text>
+    <text x="375" y="225">Epic</text>
+    <text x="525" y="145">Dev</text>
+    <text x="675" y="145">Test</text>
+    <text x="825" y="145">Done</text>
+  </g>
+
+  <g text-anchor="middle" fill="#5d6168" font-size="12.5">
+    <text x="375" y="134">small task</text>
+    <text x="375" y="102">plan approved</text>
+    <text x="375" y="264">split into sub-cards</text>
+    <text x="600" y="72" fill="#c0392b">FAIL, try again</text>
+    <text x="749" y="132">PASS</text>
+    <text x="825" y="182">a person merges</text>
+  </g>
+</svg>
