@@ -311,8 +311,8 @@ CREATE TABLE review_results (
 
 ```dotenv
 # Git
-GIT_REPO_PATH=D:\Coding_Stuffs\Github\Shicukoe.github.io
-GIT_WORKTREE_BASE=D:\Coding_Stuffs\agent-worktrees
+GIT_REPO_PATH=D:\path\to\target-repo
+GIT_WORKTREE_BASE=D:\path\to\agent-worktrees
 GIT_DEFAULT_BASE_BRANCH=dev
 GIT_USER_NAME=AI Agent
 GIT_USER_EMAIL=ai-agent@users.noreply.github.com
