@@ -14,6 +14,10 @@ I used it on an internal company project, in its staging and UAT environments. I
 from "just created" to "reviewed and ready to merge" in about seven and a half minutes, and nobody touched it
 along the way.
 
+**Demo video:** <https://youtu.be/frzeDyqpQYU>
+
+[![Demo video of AI Agent Developer](https://img.youtube.com/vi/frzeDyqpQYU/hqdefault.jpg)](https://youtu.be/frzeDyqpQYU)
+
 ## How it works
 
 Everything starts on a Trello board. You write a card the way you would for a colleague, maybe just a sentence
