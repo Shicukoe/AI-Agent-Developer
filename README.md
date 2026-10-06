@@ -6,11 +6,11 @@
 > to this repository recently.
 
 This project lets you write a task on a Trello card and get back a code change on its own Git branch, already
-reviewed by an AI. I built it during a 2026 internship. The developers on my team kept getting small bug
-reports and feature requests that took more time to read and understand than to fix, and I wanted to see how
-much of that work a group of AI agents could take over.
+reviewed by an AI. I built the agent pipeline during a 2026 internship. The developers on my team kept getting
+small bug reports and feature requests that took more time to read and understand than to fix, and I wanted to
+see how much of that work a group of AI agents could take over.
 
-Over two weeks it handled 19 real requests on an internal company project. In full-auto mode, one card went
+I used it on an internal company project, in its staging and UAT environments. In full-auto mode, one card went
 from "just created" to "reviewed and ready to merge" in about seven and a half minutes, and nobody touched it
 along the way.
 
@@ -131,7 +131,7 @@ If you're reading the code, start at `src/supervisor.ts`, which starts one worke
 
 ## Credits
 
-A teammate started this project with the first version of the Trello and Git plumbing: the board connection,
+My supervisor started this project with the first version of the Trello and Git plumbing: the board connection,
 the worktrees, the epic flow, memory kept in card comments, and an early multi-process setup. I built the agent
 pipeline on top of that. That covers the triage and analyst steps, the review that checks real code, support
 for many repos with one worker each, token tracking, the docs and index generation, and full-auto mode. The
